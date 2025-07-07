@@ -1,0 +1,17 @@
+name: tc-testing
+channels:
+  - conda-forge
+dependencies:
+  - python=3.8
+  - pip
+  - numpy
+  - yaml
+  - pip:
+    - black
+    - ipykernel
+    - pre-commit
+    - pyvisa
+    - pandas
+    - nptdms
+    - scipy
+    - matplotlib
