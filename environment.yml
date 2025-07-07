@@ -15,3 +15,4 @@ dependencies:
     - nptdms
     - scipy
     - matplotlib
+    - qnnpy
