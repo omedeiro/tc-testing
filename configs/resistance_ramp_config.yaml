@@ -1,0 +1,29 @@
+# Configuration for resistance ramp test
+# Combines temperature ramping with resistance measurements
+
+instrument:
+  port: 'GPIB0::12::INSTR'  # Lakeshore 336 GPIB address
+  output_channel: 1          # Heater output channel
+
+sourcemeter:
+  port: 'GPIB0::23::INSTR'   # Keithley 2400 GPIB address  
+  current_level: 1.0e-6      # Source current in Amperes (1 µA)
+
+ramp_test:
+  start_temp: 3.5            # Starting temperature in Kelvin
+  target_temp: 13.0           # Target temperature in Kelvin
+  ramp_rate: 1.0             # Ramp rate in K/min
+  recording_interval: 1.0    # Data recording interval in seconds
+  hold_time: 60              # Hold time at target temperature in seconds
+
+pid:
+  P: 100                     # Proportional gain
+  I: 25                      # Integral gain  
+  D: 15                      # Derivative gain
+
+# Notes:
+# - The sourcemeter will be configured for 2-wire resistance measurement
+# - Current source mode with voltage measurement
+# - Output will be enabled at start of ramp and disabled at end
+# - Resistance calculated as R = V / I for each measurement
+# - All data (temperature, voltage, resistance) logged simultaneously

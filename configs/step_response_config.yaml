@@ -6,9 +6,9 @@ instrument:
   output_channel: 1  # Heater output to use (1-4)
 
 pid:
-  P: 150  # Proportional gain
+  P: 120  # Proportional gain
   I: 80   # Integral gain
-  D: 10   # Derivative gain
+  D: 20   # Derivative gain
 
 step_test:
   start_temp: 3.5        # Starting temperature in K
