@@ -1,0 +1,24 @@
+# Temperature Step Response Test Configuration
+
+instrument:
+  name: "Lakeshore336"
+  port: "GPIB0::12::INSTR"
+  output_channel: 1  # Heater output to use (1-4)
+
+step_test:
+  start_temp: 3.5        # Starting temperature in K
+  target_temp: 6.0       # Target temperature for step in K
+  recording_interval: 0.5 # Time between recordings in seconds
+  baseline_time: 30      # Time to record baseline before step (seconds)
+  step_hold_time: 30    # Time to hold at target after step (seconds)
+
+stability:
+  tolerance: 0.1           # Temperature tolerance for stability in K (100 mK)
+  required_stable_readings: 3 # Number of consecutive stable readings required
+  check_interval: 1.0      # Time between stability checks in seconds
+  max_wait_initial: 300    # Maximum time to wait for initial stabilization
+
+analysis:
+  save_csv: true
+  save_plots: true
+  output_directory: "."
