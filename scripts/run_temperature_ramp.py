@@ -240,7 +240,7 @@ def main():
     logging.info("Temperature Ramp Test - Lakeshore 336")
     
     # Load configuration
-    config = load_config("configs/ramp_test_config.yaml")
+    config = load_config("../configs/ramp_test_config.yaml")
     if config is None:
         # Default configuration
         config = {
