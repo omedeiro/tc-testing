@@ -6,8 +6,8 @@ instrument:
   output_channel: 1  # Heater output to use (1-4)
 
 pid:
-  P: 130  # Proportional gain
-  I: 35   # Integral gain
+  P: 150  # Proportional gain
+  I: 80   # Integral gain
   D: 10   # Derivative gain
 
 step_test:
