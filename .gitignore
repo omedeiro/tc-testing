@@ -18,6 +18,10 @@ pip-delete-this-directory.txt
 *.csv
 *.png
 
+# Test result directories
+step_response_results/
+ramp_test_results/
+
 # Temperature sweep outputs
 temperature_sweep_*.csv
 temperature_sweep.log
