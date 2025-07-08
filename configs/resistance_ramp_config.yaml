@@ -10,7 +10,7 @@ sourcemeter:
   current_level: 1.0e-6      # Source current in Amperes (1 µA)
 
 ramp_test:
-  start_temp: 3.5            # Starting temperature in Kelvin
+  start_temp: 6.0            # Starting temperature in Kelvin
   target_temp: 13.0           # Target temperature in Kelvin
   ramp_rate: 1.0             # Ramp rate in K/min
   recording_interval: 1.0    # Data recording interval in seconds
