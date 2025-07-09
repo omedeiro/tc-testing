@@ -675,36 +675,34 @@ def analyze_critical_temperature(df):
                     logging.info(f"Ramp UP - dR/dT maximum: Tc = {tc_derivative_up:.3f} K, "
                                f"dR/dT = {max_derivative_value:.2e} Ω/K")
             
-            # Analyze ramp down: look for minimum dR/dT (negative peak)
+            # Analyze ramp down: look for maximum dR/dT (positive peak)
             if len(ramp_down_indices) > 3:
                 dR_dT_down = dR_dT[ramp_down_indices]
                 temp_down = temperatures[ramp_down_indices]
                 
                 try:
                     from scipy.signal import find_peaks
-                    # For minimum finding, invert the signal and find peaks
-                    dR_dT_down_inverted = -dR_dT_down
-                    min_prominence = np.std(dR_dT_down_inverted) * 1.5
-                    peaks, properties = find_peaks(dR_dT_down_inverted, prominence=min_prominence, distance=2)
+                    min_prominence = np.std(dR_dT_down) * 1.5
+                    peaks, properties = find_peaks(dR_dT_down, prominence=min_prominence, distance=2)
                     
                     if len(peaks) > 0:
-                        min_peak_idx = peaks[np.argmax(properties['prominences'])]
-                        tc_derivative_down = temp_down[min_peak_idx]
-                        min_derivative_value = dR_dT_down[min_peak_idx]
-                        logging.info(f"Ramp DOWN - dR/dT minimum: Tc = {tc_derivative_down:.3f} K, "
-                                   f"dR/dT = {min_derivative_value:.2e} Ω/K")
+                        max_peak_idx = peaks[np.argmax(properties['prominences'])]
+                        tc_derivative_down = temp_down[max_peak_idx]
+                        max_derivative_value_down = dR_dT_down[max_peak_idx]
+                        logging.info(f"Ramp DOWN - dR/dT maximum: Tc = {tc_derivative_down:.3f} K, "
+                                   f"dR/dT = {max_derivative_value_down:.2e} Ω/K")
                     else:
-                        min_idx = np.argmin(dR_dT_down)
-                        tc_derivative_down = temp_down[min_idx]
-                        min_derivative_value = dR_dT_down[min_idx]
-                        logging.info(f"Ramp DOWN - dR/dT minimum: Tc = {tc_derivative_down:.3f} K, "
-                                   f"dR/dT = {min_derivative_value:.2e} Ω/K (simple min)")
+                        max_idx = np.argmax(dR_dT_down)
+                        tc_derivative_down = temp_down[max_idx]
+                        max_derivative_value_down = dR_dT_down[max_idx]
+                        logging.info(f"Ramp DOWN - dR/dT maximum: Tc = {tc_derivative_down:.3f} K, "
+                                   f"dR/dT = {max_derivative_value_down:.2e} Ω/K (simple max)")
                 except ImportError:
-                    min_idx = np.argmin(dR_dT_down)
-                    tc_derivative_down = temp_down[min_idx]
-                    min_derivative_value = dR_dT_down[min_idx]
-                    logging.info(f"Ramp DOWN - dR/dT minimum: Tc = {tc_derivative_down:.3f} K, "
-                               f"dR/dT = {min_derivative_value:.2e} Ω/K")
+                    max_idx = np.argmax(dR_dT_down)
+                    tc_derivative_down = temp_down[max_idx]
+                    max_derivative_value_down = dR_dT_down[max_idx]
+                    logging.info(f"Ramp DOWN - dR/dT maximum: Tc = {tc_derivative_down:.3f} K, "
+                               f"dR/dT = {max_derivative_value_down:.2e} Ω/K")
             
             # Choose the best derivative estimate (prefer ramp up if available)
             if tc_derivative_up is not None:
@@ -985,10 +983,10 @@ def create_critical_temperature_analysis_plot(df, filename_prefix, config, outpu
                     ax3.axvline(x=phase_temps[max_idx], color='blue', linestyle=':', alpha=0.7)
                 
                 elif phase == 'ramp_down' and len(phase_dR_dT) > 0:
-                    min_idx = np.argmin(phase_dR_dT)
-                    ax3.plot(phase_temps[min_idx], phase_dR_dT[min_idx], 'ro', markersize=8, 
-                            label=f'Min dR/dT (down): {phase_temps[min_idx]:.3f} K')
-                    ax3.axvline(x=phase_temps[min_idx], color='red', linestyle=':', alpha=0.7)
+                    max_idx = np.argmax(phase_dR_dT)
+                    ax3.plot(phase_temps[max_idx], phase_dR_dT[max_idx], 'ro', markersize=8, 
+                            label=f'Max dR/dT (down): {phase_temps[max_idx]:.3f} K')
+                    ax3.axvline(x=phase_temps[max_idx], color='red', linestyle=':', alpha=0.7)
         
         ax3.set_xlabel('Temperature (K)')
         ax3.set_ylabel('dR/dT (Ω/K)')
