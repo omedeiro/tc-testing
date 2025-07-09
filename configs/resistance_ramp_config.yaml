@@ -11,20 +11,27 @@ sourcemeter:
   # Enhanced noise reduction parameters
   integration_time_plc: 10.0  # Integration time in power line cycles (higher = less noise)
   filter_count: 10            # Digital filter count for moving average
-  num_averages: 5             # Number of measurements to average per data point
+  num_averages: 10            # Number of measurements to average per data point
   settling_time: 0.1          # Settling time between measurements (seconds)
 
 ramp_test:
-  start_temp: 3.5            # Starting temperature in Kelvin
+  start_temp: 5.0            # Starting temperature in Kelvin
   target_temp: 13.0           # Target temperature in Kelvin
-  ramp_rate: 1.0              # Ramp rate in K/min
+  ramp_rate: 0.5              # Ramp rate in K/min
   recording_interval: 1.0    # Data recording interval in seconds
   hold_time: 60              # Hold time at target temperature in seconds
 
 pid:
-  P: 100                     # Proportional gain
-  I: 25                      # Integral gain  
-  D: 15                      # Derivative gain
+  P: 80                      # Proportional gain (reduced from 100 for better stability)
+  I: 50                      # Integral gain (increased from 25 to counter cooling disturbances)
+  D: 5                       # Derivative gain (reduced from 15 to prevent noise amplification)
+  
+# Additional temperature control settings for coldstage stability
+temperature_control:
+  heater_range: 2            # Heater range (1=low, 2=medium, 3=high) - medium for better control
+  manual_output: 0           # Manual heater output percentage (0=auto PID mode)
+  max_heater_output: 100     # Maximum heater output limit (percentage)
+  ramp_rate_limit: 1.0       # Maximum ramp rate limit in K/min to prevent overshoot
 
 # Noise Reduction Notes:
 # - integration_time_plc: 1 PLC = 16.7ms (60Hz), higher values reduce noise but slow measurements
@@ -32,6 +39,14 @@ pid:
 # - filter_count: Number of readings for digital moving average filter
 # - num_averages: Multiple measurements averaged per data point
 # - settling_time: Delay between measurements for system stabilization
+#
+# PID Tuning for Coldstage Systems:
+# - Lower P gain (50 vs 100) reduces oscillations from cooling cycle disturbances
+# - Higher I gain (50 vs 25) provides better steady-state accuracy and disturbance rejection
+# - Lower D gain (5 vs 15) prevents noise amplification from temperature sensor
+# - Consider heater range 2 (medium) for balance between response and stability
+# - For severe oscillations, try: P=30, I=70, D=2
+# - For slow response, try: P=70, I=40, D=8
 #
 # Original Notes:
 # - The sourcemeter will be configured for 2-wire resistance measurement
