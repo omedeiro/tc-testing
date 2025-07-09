@@ -6,13 +6,18 @@ instrument:
   output_channel: 1          # Heater output channel
 
 sourcemeter:
-  port: 'GPIB0::23::INSTR'   # Keithley 2400 GPIB address  
+  port: 'GPIB0::23::INSTR'   # Keithley 2400 GPIB address
   current_level: 1.0e-6      # Source current in Amperes (1 µA)
+  # Enhanced noise reduction parameters
+  integration_time_plc: 10.0  # Integration time in power line cycles (higher = less noise)
+  filter_count: 10            # Digital filter count for moving average
+  num_averages: 5             # Number of measurements to average per data point
+  settling_time: 0.1          # Settling time between measurements (seconds)
 
 ramp_test:
-  start_temp: 6.0            # Starting temperature in Kelvin
+  start_temp: 3.5            # Starting temperature in Kelvin
   target_temp: 13.0           # Target temperature in Kelvin
-  ramp_rate: 1.0             # Ramp rate in K/min
+  ramp_rate: 1.0              # Ramp rate in K/min
   recording_interval: 1.0    # Data recording interval in seconds
   hold_time: 60              # Hold time at target temperature in seconds
 
@@ -21,7 +26,14 @@ pid:
   I: 25                      # Integral gain  
   D: 15                      # Derivative gain
 
-# Notes:
+# Noise Reduction Notes:
+# - integration_time_plc: 1 PLC = 16.7ms (60Hz), higher values reduce noise but slow measurements
+#   Recommended: 1-10 PLC for balance, 10-100 PLC for lowest noise
+# - filter_count: Number of readings for digital moving average filter
+# - num_averages: Multiple measurements averaged per data point
+# - settling_time: Delay between measurements for system stabilization
+#
+# Original Notes:
 # - The sourcemeter will be configured for 2-wire resistance measurement
 # - Current source mode with voltage measurement
 # - Output will be enabled at start of ramp and disabled at end
