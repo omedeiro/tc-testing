@@ -35,8 +35,8 @@ ramp_test:
   hold_time: 60              # Hold time at target temperature in seconds
 
 pid:
-  P: 80                      # Proportional gain (reduced from 100 for better stability)
-  I: 50                      # Integral gain (increased from 25 to counter cooling disturbances)
+  P: 100                      # Proportional gain (reduced from 100 for better stability)
+  I: 70                      # Integral gain (increased from 25 to counter cooling disturbances)
   D: 5                       # Derivative gain (reduced from 15 to prevent noise amplification)
   
 # Additional temperature control settings for coldstage stability
