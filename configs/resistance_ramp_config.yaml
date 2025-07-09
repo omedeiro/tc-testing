@@ -14,6 +14,19 @@ sourcemeter:
   num_averages: 10            # Number of measurements to average per data point
   settling_time: 0.1          # Settling time between measurements (seconds)
 
+# dR/dT filtering options to reduce noise in derivative calculations
+derivative_filtering:
+  enabled: true               # Enable/disable dR/dT filtering
+  method: 'savgol'           # Filtering method: 'savgol', 'moving_average', 'gaussian', 'median'
+  savgol_window: 5           # Window length for Savitzky-Golay filter (must be odd, >= 3)
+  savgol_order: 2            # Polynomial order for Savitzky-Golay filter (must be < window)
+  moving_avg_window: 5       # Window size for moving average filter
+  gaussian_sigma: 1.0        # Standard deviation for Gaussian filter
+  median_window: 5           # Window size for median filter (must be odd)
+  # Filter aggressiveness control
+  filter_twice: false        # Apply the filter twice for stronger noise reduction
+  preserve_peaks: true       # Use peak-preserving filtering when possible
+
 ramp_test:
   start_temp: 5.0            # Starting temperature in Kelvin
   target_temp: 13.0           # Target temperature in Kelvin
@@ -39,6 +52,15 @@ temperature_control:
 # - filter_count: Number of readings for digital moving average filter
 # - num_averages: Multiple measurements averaged per data point
 # - settling_time: Delay between measurements for system stabilization
+#
+# dR/dT Filtering Options:
+# - savgol: Savitzky-Golay filter preserves peaks while smoothing, good for derivative analysis
+# - moving_average: Simple moving average, good for general noise reduction
+# - gaussian: Gaussian filter provides smooth curves, may blur sharp features
+# - median: Median filter removes outliers/spikes, preserves edges
+# - filter_twice: Apply filter twice for stronger noise reduction (may over-smooth)
+# - preserve_peaks: Use peak-preserving algorithms when available
+# Recommended for noisy dR/dT: savgol with window=5, order=2, preserve_peaks=true
 #
 # PID Tuning for Coldstage Systems:
 # - Lower P gain (50 vs 100) reduces oscillations from cooling cycle disturbances
