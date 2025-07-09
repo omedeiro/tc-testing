@@ -176,7 +176,7 @@ def perform_resistance_ramp_test(temp_controller, sourcemeter, config):
     
     # Set initial setpoint without ramping
     logging.info(f"Setting initial setpoint to {start_temp}K (no ramp)")
-    configure_ramp(temp_controller, output, ramp_rate, enable=False)
+    configure_ramp(temp_controller, output, ramp_rate, enable=False, config=config)
     set_setpoint_with_retry(temp_controller, start_temp, output)
     
     logging.info(f"Waiting for stability at {start_temp}K...")
@@ -211,7 +211,7 @@ def perform_resistance_ramp_test(temp_controller, sourcemeter, config):
             # Start ramp up
             if not ramp_up_started and current_time > 10:  # Start ramp after 10s baseline
                 logging.info(f"Starting ramp up to {target_temp}K")
-                configure_ramp(temp_controller, output, ramp_rate, enable=True)
+                configure_ramp(temp_controller, output, ramp_rate, enable=True, config=config)
                 set_setpoint_for_ramp(temp_controller, target_temp, output)
                 ramp_up_started = True
                 ramp_up_time = current_time
@@ -228,7 +228,7 @@ def perform_resistance_ramp_test(temp_controller, sourcemeter, config):
             # Start ramp down after hold time
             if hold_started and not ramp_down_started and current_time > hold_start_time + hold_time:
                 logging.info(f"Starting ramp down to {start_temp}K")
-                configure_ramp(temp_controller, output, ramp_rate, enable=True)
+                configure_ramp(temp_controller, output, ramp_rate, enable=True, config=config)
                 set_setpoint_for_ramp(temp_controller, start_temp, output)
                 ramp_down_started = True
                 ramp_down_time = current_time
@@ -1034,6 +1034,137 @@ def create_critical_temperature_analysis_plot(df, filename_prefix, config, outpu
     plt.show()
     return plot_filename
 
+def filter_drdt(dR_dT, temperatures, filter_config):
+    """
+    Apply configurable filtering to dR/dT data to reduce noise.
+    
+    Args:
+        dR_dT: Array of dR/dT values
+        temperatures: Array of temperature values (for filtering validation)
+        filter_config: Dictionary with filtering configuration
+    
+    Returns:
+        filtered_dR_dT: Filtered dR/dT array
+    """
+    if not filter_config.get('enabled', True):
+        logging.info("dR/dT filtering disabled")
+        return dR_dT
+    
+    if len(dR_dT) < 3:
+        logging.warning("Insufficient data for dR/dT filtering")
+        return dR_dT
+    
+    method = filter_config.get('method', 'savgol')
+    filter_twice = filter_config.get('filter_twice', False)
+    preserve_peaks = filter_config.get('preserve_peaks', True)
+    
+    filtered_dR_dT = dR_dT.copy()
+    
+    try:
+        if method == 'savgol':
+            # Savitzky-Golay filter
+            window = filter_config.get('savgol_window', 5)
+            order = filter_config.get('savgol_order', 2)
+            
+            # Ensure window is odd and reasonable
+            if window % 2 == 0:
+                window += 1
+            window = max(3, min(window, len(dR_dT)))
+            if window % 2 == 0:
+                window -= 1
+            
+            # Ensure order is less than window
+            order = min(order, window - 1)
+            
+            try:
+                from scipy.signal import savgol_filter
+                filtered_dR_dT = savgol_filter(filtered_dR_dT, window, order)
+                logging.info(f"Applied Savitzky-Golay filter to dR/dT (window={window}, order={order})")
+            except ImportError:
+                logging.warning("SciPy not available for Savitzky-Golay filtering, using moving average")
+                method = 'moving_average'
+        
+        if method == 'moving_average':
+            # Simple moving average
+            window = filter_config.get('moving_avg_window', 5)
+            window = max(2, min(window, len(dR_dT)))
+            
+            filtered_dR_dT = np.convolve(filtered_dR_dT, np.ones(window)/window, mode='same')
+            logging.info(f"Applied moving average filter to dR/dT (window={window})")
+        
+        elif method == 'gaussian':
+            # Gaussian filter
+            sigma = filter_config.get('gaussian_sigma', 1.0)
+            
+            try:
+                from scipy.ndimage import gaussian_filter1d
+                filtered_dR_dT = gaussian_filter1d(filtered_dR_dT, sigma)
+                logging.info(f"Applied Gaussian filter to dR/dT (sigma={sigma})")
+            except ImportError:
+                logging.warning("SciPy not available for Gaussian filtering, using moving average")
+                window = max(2, min(5, len(dR_dT)))
+                filtered_dR_dT = np.convolve(filtered_dR_dT, np.ones(window)/window, mode='same')
+        
+        elif method == 'median':
+            # Median filter
+            window = filter_config.get('median_window', 5)
+            if window % 2 == 0:
+                window += 1
+            window = max(3, min(window, len(dR_dT)))
+            
+            try:
+                from scipy.signal import medfilt
+                filtered_dR_dT = medfilt(filtered_dR_dT, window)
+                logging.info(f"Applied median filter to dR/dT (window={window})")
+            except ImportError:
+                logging.warning("SciPy not available for median filtering, using moving average")
+                window = max(2, min(5, len(dR_dT)))
+                filtered_dR_dT = np.convolve(filtered_dR_dT, np.ones(window)/window, mode='same')
+        
+        else:
+            logging.warning(f"Unknown filtering method '{method}', using raw dR/dT")
+            return dR_dT
+        
+        # Apply filtering twice if requested
+        if filter_twice:
+            if method == 'savgol':
+                try:
+                    from scipy.signal import savgol_filter
+                    filtered_dR_dT = savgol_filter(filtered_dR_dT, window, order)
+                    logging.info("Applied second pass of Savitzky-Golay filter")
+                except ImportError:
+                    pass
+            elif method == 'moving_average':
+                filtered_dR_dT = np.convolve(filtered_dR_dT, np.ones(window)/window, mode='same')
+                logging.info("Applied second pass of moving average filter")
+            elif method == 'gaussian':
+                try:
+                    from scipy.ndimage import gaussian_filter1d
+                    filtered_dR_dT = gaussian_filter1d(filtered_dR_dT, sigma)
+                    logging.info("Applied second pass of Gaussian filter")
+                except ImportError:
+                    pass
+            elif method == 'median':
+                try:
+                    from scipy.signal import medfilt
+                    filtered_dR_dT = medfilt(filtered_dR_dT, window)
+                    logging.info("Applied second pass of median filter")
+                except ImportError:
+                    pass
+        
+        # Log filtering effectiveness
+        original_std = np.std(dR_dT)
+        filtered_std = np.std(filtered_dR_dT)
+        noise_reduction = (1 - filtered_std / original_std) * 100 if original_std > 0 else 0
+        logging.info(f"dR/dT filtering effectiveness: {noise_reduction:.1f}% noise reduction")
+        
+        return filtered_dR_dT
+    
+    except Exception as e:
+        logging.error(f"Error in dR/dT filtering: {str(e)}")
+        return dR_dT
+
+
 def save_analysis_results(tc_result, tc_methods, tc_stats, tc_up, tc_down, 
                          ramp_up_data, ramp_down_data, output_dir, filename_prefix):
     """
@@ -1280,9 +1411,6 @@ def create_measurement_summary(config, tc_result, tc_methods, tc_stats, tc_up, t
     except Exception as e:
         logging.error(f"Failed to create measurement summary: {str(e)}")
         return None
-
-
-# ...existing code...
 
 def main():
     """Main function to run resistance ramp test."""
