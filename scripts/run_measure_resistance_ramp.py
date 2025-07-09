@@ -14,11 +14,16 @@ from temperature_control_utils import (
     set_setpoint_for_ramp, wait_for_stability, configure_ramp, shutdown_heater
 )
 
-# Create output directory
-output_dir = "resistance_ramp_results"
+# Create organized output directory structure
+base_output_dir = "data"
+os.makedirs(base_output_dir, exist_ok=True)
+
+# Create timestamped folder for this measurement run
+run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+output_dir = os.path.join(base_output_dir, f"resistance_ramp_{run_timestamp}")
 os.makedirs(output_dir, exist_ok=True)
 
-# Configure logging
+# Configure logging with run-specific log file
 log_filename = os.path.join(output_dir, 'resistance_ramp.log')
 logging.basicConfig(
     level=logging.INFO,
@@ -29,9 +34,12 @@ logging.basicConfig(
     ]
 )
 
-def setup_sourcemeter(sourcemeter: Keithley2400, current_level=1e-6):
-    """Setup Keithley 2400 for 2-wire resistance measurement."""
-    logging.info("Setting up Keithley 2400 sourcemeter...")
+# Log the output directory for user reference
+logging.info(f"Output directory: {output_dir}")
+
+def setup_sourcemeter(sourcemeter: Keithley2400, current_level=1e-6, nplc=10.0, filter_count=10):
+    """Setup Keithley 2400 for low-noise 2-wire resistance measurement."""
+    logging.info("Setting up Keithley 2400 sourcemeter for low-noise operation...")
     
     try:
         # Reset instrument
@@ -48,27 +56,94 @@ def setup_sourcemeter(sourcemeter: Keithley2400, current_level=1e-6):
         # Set voltage compliance (10V default)
         sourcemeter.set_compliance_v(10.0)
         
-        # Set measurement time for better accuracy
-        sourcemeter.set_measurement_time(1.0)  # 1 PLC for good accuracy
+        # Enhanced measurement settings for noise reduction
+        # Set integration time (NPLC) for better noise rejection
+        sourcemeter.set_measurement_time(nplc)  # Higher NPLC for lower noise
+        logging.info(f"Integration time set to: {nplc} NPLC ({nplc*16.7:.1f} ms)")
+        
+        # Enable digital filter if available
+        try:
+            # Try to enable digital filter with moving average
+            sourcemeter.write(f":SENS:VOLT:DFIL:STAT ON")  # Enable digital filter
+            sourcemeter.write(f":SENS:VOLT:DFIL:COUN {filter_count}")  # Set filter count
+            sourcemeter.write(f":SENS:VOLT:DFIL:TCON MOV")  # Moving average filter
+            logging.info(f"Digital filter enabled: {filter_count}-point moving average")
+        except:
+            logging.warning("Digital filter not available or failed to configure")
+        
+        # Set auto-range for voltage measurements
+        try:
+            sourcemeter.write(":SENS:VOLT:RANG:AUTO ON")
+            logging.info("Auto-range enabled for voltage measurements")
+        except:
+            logging.warning("Auto-range configuration failed")
+        
+        # Enable autozero for better accuracy
+        try:
+            sourcemeter.write(":SYST:AZER ON")
+            logging.info("Autozero enabled for better accuracy")
+        except:
+            logging.warning("Autozero configuration failed")
         
         # Enable output but don't turn on yet
-        logging.info("✓ Sourcemeter configured for 2-wire resistance measurement")
+        logging.info("✓ Sourcemeter configured for low-noise 2-wire resistance measurement")
         return True
         
     except Exception as e:
         logging.error(f"✗ Failed to setup sourcemeter: {str(e)}")
         return False
 
-def measure_resistance(sourcemeter, current_level=1e-6):
-    """Measure voltage and calculate resistance."""
+def measure_resistance(sourcemeter, current_level=1e-6, num_averages=5, settling_time=0.1):
+    """Measure voltage with averaging and calculate resistance with improved noise handling."""
     try:
-        # Measure voltage
-        voltage = sourcemeter.read_voltage()
+        # Allow settling time for stable measurement
+        if settling_time > 0:
+            time.sleep(settling_time)
+        
+        # Take multiple measurements for averaging
+        voltages = []
+        for i in range(num_averages):
+            try:
+                voltage = sourcemeter.read_voltage()
+                if voltage is not None and not np.isnan(voltage):
+                    voltages.append(voltage)
+                    if num_averages > 1:
+                        time.sleep(0.01)  # Small delay between measurements
+            except:
+                continue
+        
+        if len(voltages) == 0:
+            logging.warning("No valid voltage measurements obtained")
+            return None, None
+        
+        # Calculate statistics
+        voltages = np.array(voltages)
+        
+        # Remove outliers using interquartile range method
+        if len(voltages) >= 3:
+            q75, q25 = np.percentile(voltages, [75, 25])
+            iqr = q75 - q25
+            lower_bound = q25 - 1.5 * iqr
+            upper_bound = q75 + 1.5 * iqr
+            voltages_filtered = voltages[(voltages >= lower_bound) & (voltages <= upper_bound)]
+            
+            if len(voltages_filtered) > 0:
+                voltages = voltages_filtered
+        
+        # Calculate final voltage (mean of filtered measurements)
+        voltage_mean = np.mean(voltages)
+        voltage_std = np.std(voltages) if len(voltages) > 1 else 0
         
         # Calculate resistance using Ohm's law (V = I*R)
-        resistance = voltage / current_level
+        resistance = voltage_mean / current_level
+        resistance_uncertainty = voltage_std / current_level if voltage_std > 0 else 0
         
-        return voltage, resistance
+        # Log measurement quality occasionally
+        if len(voltages) != num_averages:
+            logging.debug(f"Measurement quality: {len(voltages)}/{num_averages} valid readings, "
+                         f"σ(V) = {voltage_std*1e6:.1f} µV, σ(R) = {resistance_uncertainty:.3f} Ω")
+        
+        return voltage_mean, resistance
         
     except Exception as e:
         logging.error(f"Error measuring resistance: {str(e)}")
@@ -86,11 +161,17 @@ def perform_resistance_ramp_test(temp_controller, sourcemeter, config):
     hold_time = config['ramp_test']['hold_time']
     current_level = config['sourcemeter'].get('current_level', 1e-6)
     
+    # Enhanced measurement parameters for noise reduction
+    nplc = config['sourcemeter'].get('integration_time_plc', 10.0)  # Integration time
+    filter_count = config['sourcemeter'].get('filter_count', 10)   # Digital filter count
+    num_averages = config['sourcemeter'].get('num_averages', 5)    # Number of measurements to average
+    settling_time = config['sourcemeter'].get('settling_time', 0.1) # Settling time between measurements
+    
     # Setup temperature controller
     setup_controller(temp_controller, output, config)
     
-    # Setup sourcemeter
-    if not setup_sourcemeter(sourcemeter, current_level):
+    # Setup sourcemeter with enhanced noise reduction
+    if not setup_sourcemeter(sourcemeter, current_level, nplc, filter_count):
         raise RuntimeError("Failed to setup sourcemeter")
     
     # Set initial setpoint without ramping
@@ -164,8 +245,8 @@ def perform_resistance_ramp_test(temp_controller, sourcemeter, config):
             actual_temp = float(temp_controller.read_temp(channel="A"))
             controller_setpoint = float(temp_controller.get_setpoint(output=output))
             
-            # Record resistance data
-            voltage, resistance = measure_resistance(sourcemeter, current_level)
+            # Record resistance data with enhanced measurement
+            voltage, resistance = measure_resistance(sourcemeter, current_level, num_averages, settling_time)
             
             # Determine test phase
             if not ramp_up_started:
@@ -381,8 +462,7 @@ def create_resistance_ramp_plot(df, filename_prefix, config, output_dir="resista
     plt.tight_layout()
     
     # Save plot to output directory
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    plot_filename = os.path.join(output_dir, f"{filename_prefix}_{timestamp}.png")
+    plot_filename = os.path.join(output_dir, f"{filename_prefix}_time_series.png")
     plt.savefig(plot_filename, dpi=150, bbox_inches='tight')
     logging.info(f"Plot saved: {plot_filename}")
     
@@ -495,8 +575,7 @@ def create_resistance_vs_temperature_plot(df, filename_prefix, config, output_di
     plt.tight_layout()
     
     # Save plot
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    plot_filename = os.path.join(output_dir, f"{filename_prefix}_vs_temp_{timestamp}.png")
+    plot_filename = os.path.join(output_dir, f"{filename_prefix}_vs_temp.png")
     plt.savefig(plot_filename, dpi=150, bbox_inches='tight')
     logging.info(f"R vs T plot saved: {plot_filename}")
     
@@ -504,7 +583,7 @@ def create_resistance_vs_temperature_plot(df, filename_prefix, config, output_di
     return plot_filename
 
 def analyze_critical_temperature(df):
-    """Analyze resistance data to identify critical temperature (Tc)."""
+    """Analyze resistance data to identify critical temperature (Tc) with improved noise handling."""
     logging.info("CRITICAL TEMPERATURE ANALYSIS")
     
     # Get valid resistance data
@@ -518,97 +597,241 @@ def analyze_critical_temperature(df):
     temperatures = valid_data['actual_temp_K'].values
     resistances = valid_data['resistance_ohm'].values
     
-    # Method 1: Derivative method - find maximum dR/dT
+    # Apply smoothing to reduce noise before derivative calculation
+    try:
+        from scipy.signal import savgol_filter
+        # Savitzky-Golay filter for smoothing while preserving features
+        window_length = min(11, len(resistances) // 3)  # Adaptive window size
+        if window_length % 2 == 0:
+            window_length += 1  # Must be odd
+        if window_length >= 3:
+            resistances_smooth = savgol_filter(resistances, window_length, 2)
+            logging.info(f"Applied Savitzky-Golay smoothing (window={window_length})")
+        else:
+            resistances_smooth = resistances
+            logging.warning("Insufficient data for smoothing")
+    except ImportError:
+        # Fallback to simple moving average if scipy not available
+        try:
+            window = min(5, len(resistances) // 4)
+            if window >= 2:
+                resistances_smooth = np.convolve(resistances, np.ones(window)/window, mode='same')
+                logging.info(f"Applied moving average smoothing (window={window})")
+            else:
+                resistances_smooth = resistances
+        except:
+            resistances_smooth = resistances
+            logging.warning("No smoothing applied - using raw data")
+    
+    # Method 1: Enhanced derivative method with phase-aware analysis
+    tc_derivative = None
+    max_derivative_value = None
+    min_derivative_value = None
+    
     if len(temperatures) > 5:
-        # Calculate derivative (dR/dT) using central differences
-        dR_dT = np.gradient(resistances, temperatures)
+        # Calculate derivative on smoothed data
+        dR_dT = np.gradient(resistances_smooth, temperatures)
         
-        # Find temperature of maximum derivative
-        max_derivative_idx = np.argmax(dR_dT)
-        tc_derivative = temperatures[max_derivative_idx]
-        max_derivative_value = dR_dT[max_derivative_idx]
+        # Check if we have phase information for splitting analysis
+        has_phases = 'phase' in valid_data.columns
         
-        logging.info(f"Method 1 (Max dR/dT): Tc = {tc_derivative:.3f} K, dR/dT = {max_derivative_value:.2e} Ω/K")
+        if has_phases:
+            # Phase-aware derivative analysis
+            ramp_up_mask = valid_data['phase'] == 'ramp_up'
+            ramp_down_mask = valid_data['phase'] == 'ramp_down'
+            
+            ramp_up_indices = np.where(ramp_up_mask)[0]
+            ramp_down_indices = np.where(ramp_down_mask)[0]
+            
+            tc_derivative_up = None
+            tc_derivative_down = None
+            
+            # Analyze ramp up: look for maximum dR/dT (positive peak)
+            if len(ramp_up_indices) > 3:
+                dR_dT_up = dR_dT[ramp_up_indices]
+                temp_up = temperatures[ramp_up_indices]
+                
+                try:
+                    from scipy.signal import find_peaks
+                    min_prominence = np.std(dR_dT_up) * 1.5
+                    peaks, properties = find_peaks(dR_dT_up, prominence=min_prominence, distance=2)
+                    
+                    if len(peaks) > 0:
+                        max_peak_idx = peaks[np.argmax(properties['prominences'])]
+                        tc_derivative_up = temp_up[max_peak_idx]
+                        max_derivative_value = dR_dT_up[max_peak_idx]
+                        logging.info(f"Ramp UP - dR/dT maximum: Tc = {tc_derivative_up:.3f} K, "
+                                   f"dR/dT = {max_derivative_value:.2e} Ω/K")
+                    else:
+                        max_idx = np.argmax(dR_dT_up)
+                        tc_derivative_up = temp_up[max_idx]
+                        max_derivative_value = dR_dT_up[max_idx]
+                        logging.info(f"Ramp UP - dR/dT maximum: Tc = {tc_derivative_up:.3f} K, "
+                                   f"dR/dT = {max_derivative_value:.2e} Ω/K (simple max)")
+                except ImportError:
+                    max_idx = np.argmax(dR_dT_up)
+                    tc_derivative_up = temp_up[max_idx]
+                    max_derivative_value = dR_dT_up[max_idx]
+                    logging.info(f"Ramp UP - dR/dT maximum: Tc = {tc_derivative_up:.3f} K, "
+                               f"dR/dT = {max_derivative_value:.2e} Ω/K")
+            
+            # Analyze ramp down: look for minimum dR/dT (negative peak)
+            if len(ramp_down_indices) > 3:
+                dR_dT_down = dR_dT[ramp_down_indices]
+                temp_down = temperatures[ramp_down_indices]
+                
+                try:
+                    from scipy.signal import find_peaks
+                    # For minimum finding, invert the signal and find peaks
+                    dR_dT_down_inverted = -dR_dT_down
+                    min_prominence = np.std(dR_dT_down_inverted) * 1.5
+                    peaks, properties = find_peaks(dR_dT_down_inverted, prominence=min_prominence, distance=2)
+                    
+                    if len(peaks) > 0:
+                        min_peak_idx = peaks[np.argmax(properties['prominences'])]
+                        tc_derivative_down = temp_down[min_peak_idx]
+                        min_derivative_value = dR_dT_down[min_peak_idx]
+                        logging.info(f"Ramp DOWN - dR/dT minimum: Tc = {tc_derivative_down:.3f} K, "
+                                   f"dR/dT = {min_derivative_value:.2e} Ω/K")
+                    else:
+                        min_idx = np.argmin(dR_dT_down)
+                        tc_derivative_down = temp_down[min_idx]
+                        min_derivative_value = dR_dT_down[min_idx]
+                        logging.info(f"Ramp DOWN - dR/dT minimum: Tc = {tc_derivative_down:.3f} K, "
+                                   f"dR/dT = {min_derivative_value:.2e} Ω/K (simple min)")
+                except ImportError:
+                    min_idx = np.argmin(dR_dT_down)
+                    tc_derivative_down = temp_down[min_idx]
+                    min_derivative_value = dR_dT_down[min_idx]
+                    logging.info(f"Ramp DOWN - dR/dT minimum: Tc = {tc_derivative_down:.3f} K, "
+                               f"dR/dT = {min_derivative_value:.2e} Ω/K")
+            
+            # Choose the best derivative estimate (prefer ramp up if available)
+            if tc_derivative_up is not None:
+                tc_derivative = tc_derivative_up
+                logging.info(f"Using ramp UP derivative for overall Tc estimate: {tc_derivative:.3f} K")
+            elif tc_derivative_down is not None:
+                tc_derivative = tc_derivative_down
+                logging.info(f"Using ramp DOWN derivative for overall Tc estimate: {tc_derivative:.3f} K")
+        
+        else:
+            # No phase information - use original method on full dataset
+            try:
+                from scipy.signal import find_peaks
+                min_prominence = np.std(dR_dT) * 2
+                peaks, properties = find_peaks(dR_dT, prominence=min_prominence, distance=3)
+                
+                if len(peaks) > 0:
+                    max_peak_idx = peaks[np.argmax(properties['prominences'])]
+                    tc_derivative = temperatures[max_peak_idx]
+                    max_derivative_value = dR_dT[max_peak_idx]
+                    logging.info(f"Method 1 (Enhanced dR/dT): Tc = {tc_derivative:.3f} K, "
+                               f"dR/dT = {max_derivative_value:.2e} Ω/K (prominence method)")
+                else:
+                    max_derivative_idx = np.argmax(dR_dT)
+                    tc_derivative = temperatures[max_derivative_idx]
+                    max_derivative_value = dR_dT[max_derivative_idx]
+                    logging.info(f"Method 1 (Enhanced dR/dT): Tc = {tc_derivative:.3f} K, "
+                               f"dR/dT = {max_derivative_value:.2e} Ω/K (simple maximum)")
+            except ImportError:
+                max_derivative_idx = np.argmax(dR_dT)
+                tc_derivative = temperatures[max_derivative_idx]
+                max_derivative_value = dR_dT[max_derivative_idx]
+                logging.info(f"Method 1 (Enhanced dR/dT): Tc = {tc_derivative:.3f} K, "
+                           f"dR/dT = {max_derivative_value:.2e} Ω/K")
     else:
-        tc_derivative = None
-        max_derivative_value = None
         logging.warning("Insufficient data points for derivative method")
     
-    # Method 2: Threshold method - find where resistance crosses a threshold
-    # Define superconducting threshold (e.g., 10% of maximum resistance)
-    max_resistance = np.max(resistances)
-    min_resistance = np.min(resistances)
-    resistance_range = max_resistance - min_resistance
+    # Method 2: Improved threshold method with adaptive thresholds
+    # Use robust statistics to define thresholds
+    low_percentile = np.percentile(resistances_smooth, 10)  # 10th percentile (SC state)
+    high_percentile = np.percentile(resistances_smooth, 90) # 90th percentile (normal state)
+    resistance_range = high_percentile - low_percentile
     
-    # Use 10% of the resistance range above minimum as threshold
-    threshold_resistance = min_resistance + 0.1 * resistance_range
+    # Use 10% of the resistance range above low percentile as threshold
+    threshold_resistance = low_percentile + 0.1 * resistance_range
     
-    # Find first temperature where resistance exceeds threshold
-    above_threshold = resistances > threshold_resistance
+    # Find first temperature where smoothed resistance exceeds threshold
+    above_threshold = resistances_smooth > threshold_resistance
     if np.any(above_threshold):
         threshold_idx = np.where(above_threshold)[0][0]
         tc_threshold = temperatures[threshold_idx]
-        logging.info(f"Method 2 (10% threshold): Tc = {tc_threshold:.3f} K, R_threshold = {threshold_resistance:.3f} Ω")
+        logging.info(f"Method 2 (Improved threshold): Tc = {tc_threshold:.3f} K, "
+                   f"R_threshold = {threshold_resistance:.3f} Ω")
     else:
         tc_threshold = None
         logging.warning("No data points above resistance threshold")
     
-    # Method 3: Midpoint method - find temperature at 50% of resistance transition
-    midpoint_resistance = min_resistance + 0.5 * resistance_range
+    # Method 3: Enhanced midpoint method
+    midpoint_resistance = low_percentile + 0.5 * resistance_range
     
-    # Find temperature closest to midpoint resistance
-    midpoint_diff = np.abs(resistances - midpoint_resistance)
+    # Find temperature closest to midpoint resistance using smoothed data
+    midpoint_diff = np.abs(resistances_smooth - midpoint_resistance)
     midpoint_idx = np.argmin(midpoint_diff)
     tc_midpoint = temperatures[midpoint_idx]
     
-    logging.info(f"Method 3 (50% midpoint): Tc = {tc_midpoint:.3f} K, R_midpoint = {midpoint_resistance:.3f} Ω")
+    logging.info(f"Method 3 (Enhanced midpoint): Tc = {tc_midpoint:.3f} K, "
+               f"R_midpoint = {midpoint_resistance:.3f} Ω")
     
-    # Method 4: Onset method - extrapolate linear regions
+    # Method 4: Improved onset method with better region detection
     try:
-        # Find superconducting region (low resistance, relatively flat)
-        # Assume first 30% of temperature range is superconducting
-        n_points = len(temperatures)
-        sc_end_idx = max(3, int(0.3 * n_points))
-        
-        # Find normal region (high resistance, after transition)
-        # Assume last 30% of temperature range is normal
-        normal_start_idx = min(n_points - 3, int(0.7 * n_points))
-        
-        if sc_end_idx < normal_start_idx:
-            # Fit lines to superconducting and normal regions
-            sc_temps = temperatures[:sc_end_idx]
-            sc_resistances = resistances[:sc_end_idx]
-            normal_temps = temperatures[normal_start_idx:]
-            normal_resistances = resistances[normal_start_idx:]
+        # Use derivative information to better define regions
+        if tc_derivative is not None:
+            # Find regions based on derivative behavior
+            derivative_threshold = max_derivative_value * 0.1 if max_derivative_value else 0
             
-            if len(sc_temps) >= 2 and len(normal_temps) >= 2:
-                # Linear fits
-                sc_fit = np.polyfit(sc_temps, sc_resistances, 1)
-                normal_fit = np.polyfit(normal_temps, normal_resistances, 1)
+            # Find superconducting region (before significant dR/dT)
+            sc_region = dR_dT < derivative_threshold
+            if np.any(sc_region):
+                sc_end_idx = np.where(~sc_region)[0][0] if np.any(~sc_region) else len(temperatures)//3
+            else:
+                sc_end_idx = len(temperatures) // 3
+            
+            # Find normal region (after significant dR/dT)
+            normal_region = dR_dT < derivative_threshold
+            normal_indices = np.where(normal_region)[0]
+            if len(normal_indices) > 0 and normal_indices[-1] > sc_end_idx:
+                normal_start_idx = normal_indices[-1]
+            else:
+                normal_start_idx = min(len(temperatures) - 3, int(0.7 * len(temperatures)))
+            
+            if sc_end_idx < normal_start_idx and sc_end_idx >= 3 and normal_start_idx < len(temperatures) - 3:
+                # Fit lines to superconducting and normal regions
+                sc_temps = temperatures[:sc_end_idx]
+                sc_resistances = resistances_smooth[:sc_end_idx]
+                normal_temps = temperatures[normal_start_idx:]
+                normal_resistances = resistances_smooth[normal_start_idx:]
                 
-                # Find intersection (onset Tc)
-                # sc_fit[0] * T + sc_fit[1] = normal_fit[0] * T + normal_fit[1]
-                if abs(sc_fit[0] - normal_fit[0]) > 1e-10:  # Avoid division by zero
-                    tc_onset = (normal_fit[1] - sc_fit[1]) / (sc_fit[0] - normal_fit[0])
+                if len(sc_temps) >= 3 and len(normal_temps) >= 3:
+                    # Linear fits with error handling
+                    sc_fit = np.polyfit(sc_temps, sc_resistances, 1)
+                    normal_fit = np.polyfit(normal_temps, normal_resistances, 1)
                     
-                    # Check if intersection is within reasonable range
-                    if temperatures[0] <= tc_onset <= temperatures[-1]:
-                        logging.info(f"Method 4 (Linear onset): Tc = {tc_onset:.3f} K")
+                    # Find intersection (onset Tc)
+                    if abs(sc_fit[0] - normal_fit[0]) > 1e-10:
+                        tc_onset = (normal_fit[1] - sc_fit[1]) / (sc_fit[0] - normal_fit[0])
+                        
+                        # Check if intersection is within reasonable range
+                        if temperatures[0] <= tc_onset <= temperatures[-1]:
+                            logging.info(f"Method 4 (Improved onset): Tc = {tc_onset:.3f} K")
+                        else:
+                            tc_onset = None
+                            logging.warning("Improved onset method: intersection outside temperature range")
                     else:
                         tc_onset = None
-                        logging.warning("Linear onset method: intersection outside temperature range")
+                        logging.warning("Improved onset method: parallel lines, no intersection")
                 else:
                     tc_onset = None
-                    logging.warning("Linear onset method: parallel lines, no intersection")
+                    logging.warning("Improved onset method: insufficient data points in regions")
             else:
                 tc_onset = None
-                logging.warning("Linear onset method: insufficient data points")
+                logging.warning("Improved onset method: could not define proper regions")
         else:
             tc_onset = None
-            logging.warning("Linear onset method: overlapping regions")
+            logging.warning("Improved onset method: no derivative data available")
     except Exception as e:
         tc_onset = None
-        logging.warning(f"Linear onset method failed: {str(e)}")
+        logging.warning(f"Improved onset method failed: {str(e)}")
     
     # Summary of results
     tc_methods = {
@@ -622,8 +845,8 @@ def analyze_critical_temperature(df):
     temp_transition_width = None
     if tc_threshold is not None:
         # Find 90% threshold temperature
-        threshold_90pct = min_resistance + 0.9 * resistance_range
-        above_90pct = resistances > threshold_90pct
+        threshold_90pct = low_percentile + 0.9 * resistance_range
+        above_90pct = resistances_smooth > threshold_90pct
         if np.any(above_90pct):
             threshold_90_idx = np.where(above_90pct)[0][0]
             tc_90pct = temperatures[threshold_90_idx]
@@ -632,7 +855,7 @@ def analyze_critical_temperature(df):
         else:
             logging.warning("Could not find 90% threshold for transition width calculation")
     
-    # Calculate statistics
+    # Calculate statistics with improved weighting
     valid_tc_values = [tc for tc in tc_methods.values() if tc is not None]
     if valid_tc_values:
         mean_tc = np.mean(valid_tc_values)
@@ -641,12 +864,15 @@ def analyze_critical_temperature(df):
         logging.info("CRITICAL TEMPERATURE SUMMARY:")
         logging.info(f"Available methods: {len(valid_tc_values)}")
         logging.info(f"Mean Tc: {mean_tc:.3f} ± {std_tc:.3f} K")
-        logging.info(f"Resistance range: {min_resistance:.3f} - {max_resistance:.3f} Ω")
+        logging.info(f"Resistance range: {low_percentile:.3f} - {high_percentile:.3f} Ω")
         if temp_transition_width is not None:
             logging.info(f"Temperature transition width (10%-90%): {temp_transition_width:.3f} K")
         
-        # Choose best estimate (prefer 50% midpoint method due to better noise immunity)
-        if tc_midpoint is not None:
+        # Choose best estimate with improved priority (derivative method preferred if reliable)
+        if tc_derivative is not None and std_tc < 0.1:  # Derivative method if consistent with others
+            best_tc = tc_derivative
+            best_method = "derivative"
+        elif tc_midpoint is not None:
             best_tc = tc_midpoint
             best_method = "midpoint_50pct"
         elif tc_onset is not None:
@@ -665,8 +891,8 @@ def analyze_critical_temperature(df):
         logging.info(f"Best estimate: Tc = {best_tc:.3f} K (method: {best_method})")
         
         return best_tc, tc_methods, {
-            'min_resistance': min_resistance,
-            'max_resistance': max_resistance,
+            'min_resistance': low_percentile,
+            'max_resistance': high_percentile,
             'resistance_range': resistance_range,
             'temp_transition_width': temp_transition_width,
             'mean_tc': mean_tc,
@@ -705,7 +931,7 @@ def create_critical_temperature_analysis_plot(df, filename_prefix, config, outpu
         # Mark all Tc estimates
         colors = ['red', 'orange', 'purple', 'brown']
         linestyles = ['--', ':', '-.', '-']
-        method_names = {'derivative': 'dR/dT max', 'threshold_10pct': '10% threshold', 
+        method_names = {'derivative': 'dR/dT maximum', 'threshold_10pct': '10% threshold', 
                        'midpoint_50pct': '50% midpoint', 'linear_onset': 'linear onset'}
         
         for i, (method, tc_value) in enumerate(tc_methods.items()):
@@ -721,8 +947,14 @@ def create_critical_temperature_analysis_plot(df, filename_prefix, config, outpu
     ax1.legend(fontsize=8)
     ax1.grid(True, alpha=0.3)
     
-    # Plot 2: Log scale R vs T
-    ax2.semilogy(temperatures, resistances, 'b-', linewidth=2, label='Resistance')
+    # Plot 2: Log scale R vs T with separate up/down sweeps
+    for phase in valid_data['phase'].unique():
+        phase_data = valid_data[valid_data['phase'] == phase]
+        if len(phase_data) > 0:
+            ax2.semilogy(phase_data['actual_temp_K'], phase_data['resistance_ohm'], 
+                        color=phase_colors.get(phase, 'black'), linewidth=2, 
+                        label=f'{phase} phase', alpha=0.8)
+    
     if best_tc is not None:
         ax2.axvline(x=best_tc, color='red', linestyle='--', linewidth=2, 
                    label=f'Best Tc = {best_tc:.3f} K')
@@ -732,30 +964,52 @@ def create_critical_temperature_analysis_plot(df, filename_prefix, config, outpu
     ax2.legend()
     ax2.grid(True, alpha=0.3)
     
-    # Plot 3: dR/dT vs T
+    # Plot 3: dR/dT vs T with phase separation
     if len(temperatures) > 5:
-        dR_dT = np.gradient(resistances, temperatures)
-        ax3.plot(temperatures, dR_dT, 'g-', linewidth=2, label='dR/dT')
-        
-        # Mark maximum derivative
-        max_idx = np.argmax(dR_dT)
-        ax3.plot(temperatures[max_idx], dR_dT[max_idx], 'ro', markersize=8, 
-                label=f'Max dR/dT at {temperatures[max_idx]:.3f} K')
-        ax3.axvline(x=temperatures[max_idx], color='red', linestyle=':', alpha=0.7)
+        # Plot dR/dT for each phase separately
+        for phase in valid_data['phase'].unique():
+            phase_data = valid_data[valid_data['phase'] == phase]
+            if len(phase_data) > 3:
+                phase_temps = phase_data['actual_temp_K'].values
+                phase_resistances = phase_data['resistance_ohm'].values
+                phase_dR_dT = np.gradient(phase_resistances, phase_temps)
+                
+                ax3.plot(phase_temps, phase_dR_dT, color=phase_colors.get(phase, 'black'), 
+                        linewidth=2, label=f'dR/dT ({phase})', alpha=0.8)
+                
+                # Mark extrema for ramp phases
+                if phase == 'ramp_up' and len(phase_dR_dT) > 0:
+                    max_idx = np.argmax(phase_dR_dT)
+                    ax3.plot(phase_temps[max_idx], phase_dR_dT[max_idx], 'bo', markersize=8, 
+                            label=f'Max dR/dT (up): {phase_temps[max_idx]:.3f} K')
+                    ax3.axvline(x=phase_temps[max_idx], color='blue', linestyle=':', alpha=0.7)
+                
+                elif phase == 'ramp_down' and len(phase_dR_dT) > 0:
+                    min_idx = np.argmin(phase_dR_dT)
+                    ax3.plot(phase_temps[min_idx], phase_dR_dT[min_idx], 'ro', markersize=8, 
+                            label=f'Min dR/dT (down): {phase_temps[min_idx]:.3f} K')
+                    ax3.axvline(x=phase_temps[min_idx], color='red', linestyle=':', alpha=0.7)
         
         ax3.set_xlabel('Temperature (K)')
         ax3.set_ylabel('dR/dT (Ω/K)')
-        ax3.set_title('Temperature Derivative of Resistance')
+        ax3.set_title('Temperature Derivative of Resistance (Phase-Aware)')
         ax3.legend()
         ax3.grid(True, alpha=0.3)
     
-    # Plot 4: Normalized resistance showing transition
+    # Plot 4: Normalized resistance showing transition with separate up/down sweeps
     if tc_stats is not None:
         min_r = tc_stats['min_resistance']
         max_r = tc_stats['max_resistance']
-        normalized_r = (resistances - min_r) / (max_r - min_r)
         
-        ax4.plot(temperatures, normalized_r, 'b-', linewidth=2, label='Normalized R')
+        for phase in valid_data['phase'].unique():
+            phase_data = valid_data[valid_data['phase'] == phase]
+            if len(phase_data) > 0:
+                phase_resistances = phase_data['resistance_ohm'].values
+                normalized_r = (phase_resistances - min_r) / (max_r - min_r)
+                ax4.plot(phase_data['actual_temp_K'], normalized_r, 
+                        color=phase_colors.get(phase, 'black'), linewidth=2, 
+                        label=f'{phase} phase', alpha=0.8)
+        
         ax4.axhline(y=0.1, color='orange', linestyle=':', label='10% threshold')
         ax4.axhline(y=0.5, color='purple', linestyle=':', label='50% midpoint')
         ax4.axhline(y=0.9, color='brown', linestyle=':', label='90% threshold')
@@ -775,108 +1029,9 @@ def create_critical_temperature_analysis_plot(df, filename_prefix, config, outpu
     plt.tight_layout()
     
     # Save plot
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    plot_filename = os.path.join(output_dir, f"{filename_prefix}_tc_analysis_{timestamp}.png")
+    plot_filename = os.path.join(output_dir, f"{filename_prefix}_tc_analysis.png")
     plt.savefig(plot_filename, dpi=150, bbox_inches='tight')
     logging.info(f"Tc analysis plot saved: {plot_filename}")
-    
-    plt.show()
-    return plot_filename
-
-def create_hysteresis_analysis_plot(df, filename_prefix, config, output_dir="resistance_ramp_results"):
-    """
-    Create a dedicated plot to visualize hysteresis in the superconducting transition.
-    
-    Args:
-        df: DataFrame with temperature and resistance data
-        filename_prefix: String prefix for the output filename
-        config: Configuration dictionary
-        output_dir: Directory to save the plot
-    """
-    if len(df) == 0:
-        logging.warning("No data to plot for hysteresis analysis")
-        return None
-    
-    # Separate ramp up and ramp down data
-    ramp_up_data = df[df['phase'] == 'ramp_up']
-    ramp_down_data = df[df['phase'] == 'ramp_down']
-    
-    if len(ramp_up_data) == 0 or len(ramp_down_data) == 0:
-        logging.warning("Insufficient data for hysteresis analysis plot")
-        return None
-    
-    plt.figure(figsize=(10, 8))
-    
-    # Plot ramp up and down separately
-    plt.subplot(2, 1, 1)
-    plt.plot(ramp_up_data['actual_temp_K'], ramp_up_data['resistance_ohm'], 
-             'b-', linewidth=2, label='Ramp Up', alpha=0.8)
-    plt.plot(ramp_down_data['actual_temp_K'], ramp_down_data['resistance_ohm'], 
-             'r-', linewidth=2, label='Ramp Down', alpha=0.8)
-    
-    # Analyze Tc for both phases
-    try:
-        tc_up, tc_methods_up, _ = analyze_critical_temperature(ramp_up_data)
-        tc_down, tc_methods_down, _ = analyze_critical_temperature(ramp_down_data)
-        
-        if tc_up is not None:
-            plt.axvline(x=tc_up, color='blue', linestyle='--', alpha=0.7, label=f'Tc (up): {tc_up:.2f} K')
-        if tc_down is not None:
-            plt.axvline(x=tc_down, color='red', linestyle='--', alpha=0.7, label=f'Tc (down): {tc_down:.2f} K')
-            
-        # Calculate and display hysteresis
-        if tc_up is not None and tc_down is not None:
-            hysteresis = tc_up - tc_down
-            plt.text(0.05, 0.95, f'Hysteresis: {hysteresis:.3f} K', 
-                    transform=plt.gca().transAxes, fontsize=12, 
-                    bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8),
-                    verticalalignment='top')
-    except:
-        logging.warning("Could not analyze Tc for hysteresis plot")
-    
-    plt.xlabel('Temperature (K)')
-    plt.ylabel('Resistance (Ω)')
-    plt.title('Superconducting Transition Hysteresis')
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    
-    # Second subplot: Combined view with arrows showing direction
-    plt.subplot(2, 1, 2)
-    plt.plot(ramp_up_data['actual_temp_K'], ramp_up_data['resistance_ohm'], 
-             'b-', linewidth=2, label='Ramp Up', alpha=0.8)
-    plt.plot(ramp_down_data['actual_temp_K'], ramp_down_data['resistance_ohm'], 
-             'r-', linewidth=2, label='Ramp Down', alpha=0.8)
-    
-    # Add arrows to show direction
-    if len(ramp_up_data) > 10:
-        mid_idx = len(ramp_up_data) // 2
-        plt.annotate('', xy=(ramp_up_data.iloc[mid_idx+2]['actual_temp_K'], 
-                           ramp_up_data.iloc[mid_idx+2]['resistance_ohm']),
-                    xytext=(ramp_up_data.iloc[mid_idx]['actual_temp_K'], 
-                           ramp_up_data.iloc[mid_idx]['resistance_ohm']),
-                    arrowprops=dict(arrowstyle='->', color='blue', lw=2))
-    
-    if len(ramp_down_data) > 10:
-        mid_idx = len(ramp_down_data) // 2
-        plt.annotate('', xy=(ramp_down_data.iloc[mid_idx+2]['actual_temp_K'], 
-                           ramp_down_data.iloc[mid_idx+2]['resistance_ohm']),
-                    xytext=(ramp_down_data.iloc[mid_idx]['actual_temp_K'], 
-                           ramp_down_data.iloc[mid_idx]['resistance_ohm']),
-                    arrowprops=dict(arrowstyle='->', color='red', lw=2))
-    
-    plt.xlabel('Temperature (K)')
-    plt.ylabel('Resistance (Ω)')
-    plt.title('Temperature Ramp Direction (with arrows)')
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    
-    plt.tight_layout()
-    
-    # Save plot
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    plot_filename = os.path.join(output_dir, f"{filename_prefix}_hysteresis_{timestamp}.png")
-    plt.savefig(plot_filename, dpi=150, bbox_inches='tight')
-    logging.info(f"Hysteresis analysis plot saved: {plot_filename}")
     
     plt.show()
     return plot_filename
@@ -899,8 +1054,7 @@ def save_analysis_results(tc_result, tc_methods, tc_stats, tc_up, tc_down,
     """
     try:
         # Create timestamp for unique filename
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        analysis_filename = os.path.join(output_dir, f"{filename_prefix}_analysis_{timestamp}.csv")
+        analysis_filename = os.path.join(output_dir, f"{filename_prefix}_analysis.csv")
         
         # Prepare analysis data
         analysis_data = []
@@ -1005,6 +1159,130 @@ def save_analysis_results(tc_result, tc_methods, tc_stats, tc_up, tc_down,
         logging.error(f"Failed to save analysis results: {str(e)}")
         return None
 
+def create_measurement_summary(config, tc_result, tc_methods, tc_stats, tc_up, tc_down, 
+                              ramp_up_data, ramp_down_data, output_dir):
+    """Create a summary file with measurement configuration and key results."""
+    try:
+        summary_filename = os.path.join(output_dir, "measurement_summary.txt")
+        
+        with open(summary_filename, 'w') as f:
+            f.write("RESISTANCE RAMP MEASUREMENT SUMMARY\n")
+            f.write("=" * 50 + "\n\n")
+            
+            # Timestamp and run info
+            f.write(f"Measurement Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"Output Directory: {output_dir}\n\n")
+            
+            # Configuration summary
+            f.write("MEASUREMENT CONFIGURATION:\n")
+            f.write("-" * 30 + "\n")
+            
+            if config:
+                # Temperature controller settings
+                instrument_config = config.get('instrument', {})
+                f.write(f"Temperature Controller: {instrument_config.get('port', 'N/A')}\n")
+                f.write(f"Output Channel: {instrument_config.get('output_channel', 'N/A')}\n")
+                
+                # Sourcemeter settings
+                sourcemeter_config = config.get('sourcemeter', {})
+                f.write(f"Sourcemeter: {sourcemeter_config.get('port', 'N/A')}\n")
+                f.write(f"Source Current: {sourcemeter_config.get('current_level', 1e-6)*1e6:.1f} µA\n")
+                f.write(f"Integration Time: {sourcemeter_config.get('integration_time_plc', 10.0)} NPLC\n")
+                f.write(f"Digital Filter: {sourcemeter_config.get('filter_count', 10)} points\n")
+                f.write(f"Measurement Averages: {sourcemeter_config.get('num_averages', 5)}\n")
+                
+                # Ramp test parameters
+                ramp_config = config.get('ramp_test', {})
+                f.write(f"Start Temperature: {ramp_config.get('start_temp', 'N/A')} K\n")
+                f.write(f"Target Temperature: {ramp_config.get('target_temp', 'N/A')} K\n")
+                f.write(f"Ramp Rate: {ramp_config.get('ramp_rate', 'N/A')} K/min\n")
+                f.write(f"Hold Time: {ramp_config.get('hold_time', 'N/A')} s\n")
+                f.write(f"Recording Interval: {ramp_config.get('recording_interval', 'N/A')} s\n")
+                
+                # PID settings
+                pid_config = config.get('pid', {})
+                f.write(f"PID Settings: P={pid_config.get('P', 'N/A')}, I={pid_config.get('I', 'N/A')}, D={pid_config.get('D', 'N/A')}\n")
+            
+            f.write("\n")
+            
+            # Critical temperature results
+            f.write("CRITICAL TEMPERATURE ANALYSIS:\n")
+            f.write("-" * 30 + "\n")
+            
+            if tc_result is not None:
+                f.write(f"Best Tc Estimate: {tc_result:.3f} K ({tc_stats.get('best_method', 'N/A')})\n")
+                
+                if tc_methods:
+                    f.write("Individual Method Results:\n")
+                    method_names = {'derivative': 'dR/dT maximum', 'threshold_10pct': '10% threshold', 
+                                   'midpoint_50pct': '50% midpoint', 'linear_onset': 'linear onset'}
+                    for method, value in tc_methods.items():
+                        if value is not None:
+                            f.write(f"  {method_names.get(method, method)}: {value:.3f} K\n")
+                
+                if tc_stats:
+                    f.write(f"Statistics: Mean = {tc_stats.get('mean_tc', 'N/A'):.3f} ± {tc_stats.get('std_tc', 'N/A'):.3f} K\n")
+                    f.write(f"Resistance Range: {tc_stats.get('min_resistance', 'N/A'):.3f} - {tc_stats.get('max_resistance', 'N/A'):.3f} Ω\n")
+                    if tc_stats.get('temp_transition_width'):
+                        f.write(f"Transition Width: {tc_stats['temp_transition_width']:.3f} K\n")
+            else:
+                f.write("No valid critical temperature found\n")
+            
+            f.write("\n")
+            
+            # Hysteresis analysis
+            f.write("HYSTERESIS ANALYSIS:\n")
+            f.write("-" * 30 + "\n")
+            
+            if tc_up is not None and tc_down is not None:
+                hysteresis = tc_up - tc_down
+                f.write(f"Tc (ramp up): {tc_up:.3f} K\n")
+                f.write(f"Tc (ramp down): {tc_down:.3f} K\n")
+                f.write(f"Hysteresis: {hysteresis:.3f} K\n")
+                if abs(hysteresis) > 0.01:
+                    f.write("Significant hysteresis detected (>0.01 K)\n")
+                else:
+                    f.write("No significant hysteresis detected\n")
+            elif tc_up is not None:
+                f.write(f"Tc (ramp up only): {tc_up:.3f} K\n")
+                f.write("Insufficient ramp down data for hysteresis analysis\n")
+            elif tc_down is not None:
+                f.write(f"Tc (ramp down only): {tc_down:.3f} K\n")
+                f.write("Insufficient ramp up data for hysteresis analysis\n")
+            else:
+                f.write("Insufficient data for hysteresis analysis\n")
+            
+            f.write("\n")
+            
+            # Data quality summary
+            f.write("DATA QUALITY:\n")
+            f.write("-" * 30 + "\n")
+            
+            if ramp_up_data is not None:
+                f.write(f"Ramp Up Data Points: {len(ramp_up_data)}\n")
+            if ramp_down_data is not None:
+                f.write(f"Ramp Down Data Points: {len(ramp_down_data)}\n")
+            
+            f.write("\n")
+            
+            # Output files
+            f.write("OUTPUT FILES:\n")
+            f.write("-" * 30 + "\n")
+            f.write("resistance_ramp_data.csv - Raw measurement data\n")
+            f.write("resistance_ramp_analysis.csv - Analysis results\n")
+            f.write("resistance_ramp_time_series.png - Time series plots\n")
+            f.write("resistance_vs_temp.png - R vs T plot with Tc analysis\n")
+            f.write("resistance_tc_analysis.png - Detailed Tc analysis plots\n")
+            f.write("resistance_ramp.log - Detailed log file\n")
+            f.write("measurement_summary.txt - This summary file\n")
+        
+        logging.info(f"✓ Measurement summary saved to: {summary_filename}")
+        return summary_filename
+        
+    except Exception as e:
+        logging.error(f"Failed to create measurement summary: {str(e)}")
+        return None
+
 
 # ...existing code...
 
@@ -1081,8 +1359,8 @@ def main():
         # Analyze and save results
         analyze_resistance_results(results_df)
         
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = os.path.join(output_dir, f"resistance_ramp_{timestamp}.csv")
+        # Save raw data
+        filename = os.path.join(output_dir, "resistance_ramp_data.csv")
         results_df.to_csv(filename, index=False)
         logging.info(f"✓ Raw sweep data saved to: {filename}")
         
@@ -1090,7 +1368,6 @@ def main():
         create_resistance_ramp_plot(results_df, "resistance_ramp", config, output_dir)
         create_resistance_vs_temperature_plot(results_df, "resistance", config, output_dir)
         create_critical_temperature_analysis_plot(results_df, "resistance", config, output_dir)
-        create_hysteresis_analysis_plot(results_df, "resistance", config, output_dir)
         
         # Analyze critical temperature with hysteresis
         tc_result, tc_methods, tc_stats = analyze_critical_temperature(results_df)
@@ -1131,6 +1408,18 @@ def main():
         # Save analysis results to CSV
         save_analysis_results(tc_result, tc_methods, tc_stats, tc_up, tc_down, 
                              ramp_up_data, ramp_down_data, output_dir, "resistance_ramp")
+        
+        # Create measurement summary
+        create_measurement_summary(config, tc_result, tc_methods, tc_stats, tc_up, tc_down, 
+                                  ramp_up_data, ramp_down_data, output_dir)
+        
+        logging.info("=" * 60)
+        logging.info(f"✓ All results saved to: {output_dir}")
+        logging.info("=" * 60)
+        
+        # Create measurement summary
+        create_measurement_summary(config, tc_result, tc_methods, tc_stats, tc_up, tc_down, 
+                                  ramp_up_data, ramp_down_data, output_dir)
         
     finally:
         # Shut down heater and sourcemeter
