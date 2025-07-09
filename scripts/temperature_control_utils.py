@@ -24,15 +24,29 @@ def setup_controller(inst: Lakeshore336, output, config):
     """Configure the temperature controller for testing."""
     logging.info("Setting up temperature controller")
     
-    # Enable PID control
+    # Get temperature control settings
+    temp_control_config = config.get('temperature_control', {}) if config else {}
+    heater_range = temp_control_config.get('heater_range', 2)  # Default to medium range
+    manual_output = temp_control_config.get('manual_output', 0)  # 0 = auto PID mode
+    max_heater_output = temp_control_config.get('max_heater_output', 100)
+    
+    # Enable PID control with specified heater range
+    logging.info(f"Setting heater range to {heater_range} (1=low, 2=medium, 3=high)")
     inst.set_output(output=output, mode=1, input_sensor=1, enable=1)
-    inst.set_range(output=output, range_set=3)  # Medium power
+    inst.set_range(output=output, range_set=heater_range)
+    
+    # Set manual output if specified (0 = auto PID mode)
+    if manual_output > 0:
+        logging.info(f"Setting manual heater output to {manual_output}%")
+        inst.set_manual_output(output=output, value=manual_output)
+    else:
+        logging.info("Using automatic PID control mode")
     
     # Configure PID parameters
     pid_config = config.get('pid', {}) if config else {}
-    p_value = pid_config.get('P', 100)  # Proportional gain
-    i_value = pid_config.get('I', 25)   # Integral gain  
-    d_value = pid_config.get('D', 15)   # Derivative gain
+    p_value = pid_config.get('P', 50)   # Proportional gain (reduced default)
+    i_value = pid_config.get('I', 50)   # Integral gain (increased default)
+    d_value = pid_config.get('D', 5)    # Derivative gain (reduced default)
     
     logging.info(f"Setting PID parameters: P={p_value}, I={i_value}, D={d_value}")
     inst.set_pid(output=output, P=p_value, I=i_value, D=d_value)
@@ -58,6 +72,9 @@ def setup_controller(inst: Lakeshore336, output, config):
             logging.warning(f"⚠ PID mismatch! Expected: P={p_value}, I={i_value}, D={d_value}")
     else:
         logging.warning(f"⚠ Could not parse PID response: {current_pid}")
+    
+    # Log final heater configuration
+    logging.info(f"Heater configuration: Range={heater_range}, Max Output={max_heater_output}%")
     
     return True
 
@@ -107,8 +124,18 @@ def wait_for_stability(inst: Lakeshore336, target_temp, tolerance=0.1, max_wait=
     return False, final_temp, max_wait
 
 
-def configure_ramp(inst: Lakeshore336, output, ramp_rate, enable=True):
-    """Configure the temperature ramp settings."""
+def configure_ramp(inst: Lakeshore336, output, ramp_rate, enable=True, config=None):
+    """Configure the temperature ramp settings with optional rate limiting."""
+    
+    # Apply ramp rate limit if specified in config
+    if config:
+        temp_control_config = config.get('temperature_control', {})
+        ramp_rate_limit = temp_control_config.get('ramp_rate_limit', None)
+        
+        if ramp_rate_limit and ramp_rate > ramp_rate_limit:
+            logging.warning(f"Ramp rate {ramp_rate:.2f} K/min exceeds limit {ramp_rate_limit:.2f} K/min, limiting to {ramp_rate_limit:.2f} K/min")
+            ramp_rate = ramp_rate_limit
+    
     logging.info(f"Configuring ramp: rate={ramp_rate:.2f} K/min, enabled={enable}")
     inst.set_ramp(output=output, on=1 if enable else 0, rate_value=ramp_rate)
     
@@ -116,6 +143,8 @@ def configure_ramp(inst: Lakeshore336, output, ramp_rate, enable=True):
     time.sleep(0.5)
     ramp_status = inst.get_ramp(output=output)
     logging.info(f"Ramp status: {ramp_status}")
+    
+    return ramp_rate  # Return the actual ramp rate used
 
 
 def shutdown_heater(inst: Lakeshore336, output):
