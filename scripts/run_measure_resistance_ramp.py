@@ -784,113 +784,91 @@ def create_critical_temperature_analysis_plot(df, filename_prefix, config, outpu
     return plot_filename
 
 def create_hysteresis_analysis_plot(df, filename_prefix, config, output_dir="resistance_ramp_results"):
-    """Create a plot showing hysteresis in the superconducting transition."""
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
+    """
+    Create a dedicated plot to visualize hysteresis in the superconducting transition.
     
-    # Get separate phase data
-    ramp_up_data = df[df['phase'] == 'ramp_up'].dropna(subset=['resistance_ohm', 'actual_temp_K'])
-    ramp_down_data = df[df['phase'] == 'ramp_down'].dropna(subset=['resistance_ohm', 'actual_temp_K'])
+    Args:
+        df: DataFrame with temperature and resistance data
+        filename_prefix: String prefix for the output filename
+        config: Configuration dictionary
+        output_dir: Directory to save the plot
+    """
+    if len(df) == 0:
+        logging.warning("No data to plot for hysteresis analysis")
+        return None
     
-    if len(ramp_up_data) < 5 or len(ramp_down_data) < 5:
+    # Separate ramp up and ramp down data
+    ramp_up_data = df[df['phase'] == 'ramp_up']
+    ramp_down_data = df[df['phase'] == 'ramp_down']
+    
+    if len(ramp_up_data) == 0 or len(ramp_down_data) == 0:
         logging.warning("Insufficient data for hysteresis analysis plot")
         return None
     
-    # Plot 1: Overlaid R vs T for ramp up and ramp down
-    ax1.scatter(ramp_up_data['actual_temp_K'], ramp_up_data['resistance_ohm'], 
-               c='blue', alpha=0.7, s=20, label='Ramp up')
-    ax1.scatter(ramp_down_data['actual_temp_K'], ramp_down_data['resistance_ohm'], 
-               c='red', alpha=0.7, s=20, label='Ramp down')
+    plt.figure(figsize=(10, 8))
     
-    # Analyze Tc for each phase
-    best_tc_up = None
-    best_tc_down = None
-    tc_hysteresis = None
+    # Plot ramp up and down separately
+    plt.subplot(2, 1, 1)
+    plt.plot(ramp_up_data['actual_temp_K'], ramp_up_data['resistance_ohm'], 
+             'b-', linewidth=2, label='Ramp Up', alpha=0.8)
+    plt.plot(ramp_down_data['actual_temp_K'], ramp_down_data['resistance_ohm'], 
+             'r-', linewidth=2, label='Ramp Down', alpha=0.8)
     
+    # Analyze Tc for both phases
+    try:
+        tc_up, tc_methods_up, _ = analyze_critical_temperature(ramp_up_data)
+        tc_down, tc_methods_down, _ = analyze_critical_temperature(ramp_down_data)
+        
+        if tc_up is not None:
+            plt.axvline(x=tc_up, color='blue', linestyle='--', alpha=0.7, label=f'Tc (up): {tc_up:.2f} K')
+        if tc_down is not None:
+            plt.axvline(x=tc_down, color='red', linestyle='--', alpha=0.7, label=f'Tc (down): {tc_down:.2f} K')
+            
+        # Calculate and display hysteresis
+        if tc_up is not None and tc_down is not None:
+            hysteresis = tc_up - tc_down
+            plt.text(0.05, 0.95, f'Hysteresis: {hysteresis:.3f} K', 
+                    transform=plt.gca().transAxes, fontsize=12, 
+                    bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8),
+                    verticalalignment='top')
+    except:
+        logging.warning("Could not analyze Tc for hysteresis plot")
+    
+    plt.xlabel('Temperature (K)')
+    plt.ylabel('Resistance (Ω)')
+    plt.title('Superconducting Transition Hysteresis')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    
+    # Second subplot: Combined view with arrows showing direction
+    plt.subplot(2, 1, 2)
+    plt.plot(ramp_up_data['actual_temp_K'], ramp_up_data['resistance_ohm'], 
+             'b-', linewidth=2, label='Ramp Up', alpha=0.8)
+    plt.plot(ramp_down_data['actual_temp_K'], ramp_down_data['resistance_ohm'], 
+             'r-', linewidth=2, label='Ramp Down', alpha=0.8)
+    
+    # Add arrows to show direction
     if len(ramp_up_data) > 10:
-        best_tc_up, _, tc_stats_up = analyze_critical_temperature(ramp_up_data)
-        if best_tc_up is not None:
-            ax1.axvline(x=best_tc_up, color='blue', linestyle='--', linewidth=2, alpha=0.8,
-                       label=f'Tc (up) = {best_tc_up:.3f} K')
+        mid_idx = len(ramp_up_data) // 2
+        plt.annotate('', xy=(ramp_up_data.iloc[mid_idx+2]['actual_temp_K'], 
+                           ramp_up_data.iloc[mid_idx+2]['resistance_ohm']),
+                    xytext=(ramp_up_data.iloc[mid_idx]['actual_temp_K'], 
+                           ramp_up_data.iloc[mid_idx]['resistance_ohm']),
+                    arrowprops=dict(arrowstyle='->', color='blue', lw=2))
     
     if len(ramp_down_data) > 10:
-        best_tc_down, _, tc_stats_down = analyze_critical_temperature(ramp_down_data)
-        if best_tc_down is not None:
-            ax1.axvline(x=best_tc_down, color='red', linestyle='--', linewidth=2, alpha=0.8,
-                       label=f'Tc (down) = {best_tc_down:.3f} K')
+        mid_idx = len(ramp_down_data) // 2
+        plt.annotate('', xy=(ramp_down_data.iloc[mid_idx+2]['actual_temp_K'], 
+                           ramp_down_data.iloc[mid_idx+2]['resistance_ohm']),
+                    xytext=(ramp_down_data.iloc[mid_idx]['actual_temp_K'], 
+                           ramp_down_data.iloc[mid_idx]['resistance_ohm']),
+                    arrowprops=dict(arrowstyle='->', color='red', lw=2))
     
-    # Calculate hysteresis
-    if best_tc_up is not None and best_tc_down is not None:
-        tc_hysteresis = best_tc_up - best_tc_down
-        
-        # Shade the hysteresis region
-        if tc_hysteresis != 0:
-            ax1.axvspan(min(best_tc_up, best_tc_down), max(best_tc_up, best_tc_down), 
-                       alpha=0.2, color='yellow', label=f'Hysteresis: {tc_hysteresis:.3f} K')
-    
-    ax1.set_xlabel('Temperature (K)')
-    ax1.set_ylabel('Resistance (Ω)')
-    ax1.set_title('Hysteresis in Superconducting Transition')
-    ax1.legend()
-    ax1.grid(True, alpha=0.3)
-    
-    # Plot 2: Direct comparison of normalized transitions
-    if len(ramp_up_data) > 10 and len(ramp_down_data) > 10:
-        # Sort data by temperature
-        ramp_up_sorted = ramp_up_data.sort_values('actual_temp_K')
-        ramp_down_sorted = ramp_down_data.sort_values('actual_temp_K')
-        
-        # Normalize resistance for each phase
-        up_min = ramp_up_sorted['resistance_ohm'].min()
-        up_max = ramp_up_sorted['resistance_ohm'].max()
-        up_normalized = (ramp_up_sorted['resistance_ohm'] - up_min) / (up_max - up_min)
-        
-        down_min = ramp_down_sorted['resistance_ohm'].min()
-        down_max = ramp_down_sorted['resistance_ohm'].max()
-        down_normalized = (ramp_down_sorted['resistance_ohm'] - down_min) / (down_max - down_min)
-        
-        ax2.plot(ramp_up_sorted['actual_temp_K'], up_normalized, 'b-', linewidth=2, 
-                label='Ramp up (normalized)', alpha=0.8)
-        ax2.plot(ramp_down_sorted['actual_temp_K'], down_normalized, 'r-', linewidth=2, 
-                label='Ramp down (normalized)', alpha=0.8)
-        
-        # Mark critical temperatures
-        if best_tc_up is not None:
-            ax2.axvline(x=best_tc_up, color='blue', linestyle='--', alpha=0.8)
-        if best_tc_down is not None:
-            ax2.axvline(x=best_tc_down, color='red', linestyle='--', alpha=0.8)
-        
-        # Add threshold lines
-        ax2.axhline(y=0.1, color='gray', linestyle=':', alpha=0.5, label='10% threshold')
-        ax2.axhline(y=0.5, color='gray', linestyle='-', alpha=0.5, label='50% midpoint')
-        ax2.axhline(y=0.9, color='gray', linestyle=':', alpha=0.5, label='90% threshold')
-        
-        ax2.set_xlabel('Temperature (K)')
-        ax2.set_ylabel('Normalized Resistance')
-        ax2.set_title('Normalized Transition Comparison')
-        ax2.legend()
-        ax2.grid(True, alpha=0.3)
-        ax2.set_ylim(-0.1, 1.1)
-    
-    # Add summary text
-    summary_text = 'Hysteresis Analysis:\n'
-    if best_tc_up is not None:
-        summary_text += f'Tc (ramp up): {best_tc_up:.3f} K\n'
-    if best_tc_down is not None:
-        summary_text += f'Tc (ramp down): {best_tc_down:.3f} K\n'
-    if tc_hysteresis is not None:
-        summary_text += f'Hysteresis: {tc_hysteresis:.3f} K\n'
-        if abs(tc_hysteresis) > 0.01:
-            summary_text += 'Significant hysteresis detected'
-        else:
-            summary_text += 'No significant hysteresis'
-    else:
-        summary_text += 'Cannot calculate hysteresis'
-    
-    fig.suptitle('Superconducting Transition Hysteresis Analysis', fontsize=14, y=0.98)
-    
-    # Add text box
-    ax1.text(0.02, 0.98, summary_text, transform=ax1.transAxes, fontsize=10,
-             verticalalignment='top', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
+    plt.xlabel('Temperature (K)')
+    plt.ylabel('Resistance (Ω)')
+    plt.title('Temperature Ramp Direction (with arrows)')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
     
     plt.tight_layout()
     
@@ -902,6 +880,133 @@ def create_hysteresis_analysis_plot(df, filename_prefix, config, output_dir="res
     
     plt.show()
     return plot_filename
+
+def save_analysis_results(tc_result, tc_methods, tc_stats, tc_up, tc_down, 
+                         ramp_up_data, ramp_down_data, output_dir, filename_prefix):
+    """
+    Save analysis results to a CSV file.
+    
+    Args:
+        tc_result: Overall critical temperature
+        tc_methods: Dictionary of Tc values from different methods
+        tc_stats: Dictionary of statistics from analysis
+        tc_up: Critical temperature from ramp up data
+        tc_down: Critical temperature from ramp down data
+        ramp_up_data: DataFrame of ramp up data
+        ramp_down_data: DataFrame of ramp down data
+        output_dir: Directory to save the file
+        filename_prefix: Prefix for the filename
+    """
+    try:
+        # Create timestamp for unique filename
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        analysis_filename = os.path.join(output_dir, f"{filename_prefix}_analysis_{timestamp}.csv")
+        
+        # Prepare analysis data
+        analysis_data = []
+        
+        # Overall results
+        analysis_data.append({
+            'Parameter': 'Overall_Tc_K',
+            'Value': tc_result if tc_result is not None else 'N/A',
+            'Method': 'Best estimate',
+            'Description': 'Critical temperature from overall dataset'
+        })
+        
+        # Individual method results
+        if tc_methods:
+            for method, value in tc_methods.items():
+                analysis_data.append({
+                    'Parameter': f'Tc_{method}_K',
+                    'Value': value if value is not None else 'N/A',
+                    'Method': method,
+                    'Description': f'Critical temperature using {method} method'
+                })
+        
+        # Statistics
+        if tc_stats:
+            for stat, value in tc_stats.items():
+                if stat in ['min_resistance', 'max_resistance', 'transition_width_K']:
+                    unit = 'Ohm' if 'resistance' in stat else 'K'
+                    analysis_data.append({
+                        'Parameter': stat,
+                        'Value': value if value is not None else 'N/A',
+                        'Method': 'Statistical analysis',
+                        'Description': f'{stat.replace("_", " ").title()} ({unit})'
+                    })
+        
+        # Ramp-specific results
+        if tc_up is not None:
+            analysis_data.append({
+                'Parameter': 'Tc_ramp_up_K',
+                'Value': tc_up,
+                'Method': 'Ramp up analysis',
+                'Description': 'Critical temperature during temperature ramp up'
+            })
+        
+        if tc_down is not None:
+            analysis_data.append({
+                'Parameter': 'Tc_ramp_down_K',
+                'Value': tc_down,
+                'Method': 'Ramp down analysis',
+                'Description': 'Critical temperature during temperature ramp down'
+            })
+        
+        # Hysteresis calculation
+        if tc_up is not None and tc_down is not None:
+            hysteresis = tc_up - tc_down
+            analysis_data.append({
+                'Parameter': 'Hysteresis_K',
+                'Value': hysteresis,
+                'Method': 'Difference calculation',
+                'Description': 'Temperature hysteresis (Tc_up - Tc_down)'
+            })
+            
+            analysis_data.append({
+                'Parameter': 'Significant_hysteresis',
+                'Value': 'Yes' if abs(hysteresis) > 0.01 else 'No',
+                'Method': 'Threshold check',
+                'Description': 'Significant hysteresis (>0.01 K)'
+            })
+        
+        # Data quality metrics
+        total_points = len(ramp_up_data) + len(ramp_down_data) if ramp_up_data is not None and ramp_down_data is not None else 'N/A'
+        analysis_data.append({
+            'Parameter': 'Total_data_points',
+            'Value': total_points,
+            'Method': 'Count',
+            'Description': 'Total number of data points collected'
+        })
+        
+        if ramp_up_data is not None:
+            analysis_data.append({
+                'Parameter': 'Ramp_up_points',
+                'Value': len(ramp_up_data),
+                'Method': 'Count',
+                'Description': 'Number of data points during ramp up'
+            })
+        
+        if ramp_down_data is not None:
+            analysis_data.append({
+                'Parameter': 'Ramp_down_points',
+                'Value': len(ramp_down_data),
+                'Method': 'Count',
+                'Description': 'Number of data points during ramp down'
+            })
+        
+        # Convert to DataFrame and save
+        analysis_df = pd.DataFrame(analysis_data)
+        analysis_df.to_csv(analysis_filename, index=False)
+        
+        logging.info(f"✓ Analysis results saved to: {analysis_filename}")
+        return analysis_filename
+        
+    except Exception as e:
+        logging.error(f"Failed to save analysis results: {str(e)}")
+        return None
+
+
+# ...existing code...
 
 def main():
     """Main function to run resistance ramp test."""
@@ -979,13 +1084,12 @@ def main():
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = os.path.join(output_dir, f"resistance_ramp_{timestamp}.csv")
         results_df.to_csv(filename, index=False)
-        logging.info(f"Data saved: {filename}")
+        logging.info(f"✓ Raw sweep data saved to: {filename}")
         
         # Create plots
         create_resistance_ramp_plot(results_df, "resistance_ramp", config, output_dir)
         create_resistance_vs_temperature_plot(results_df, "resistance", config, output_dir)
         create_critical_temperature_analysis_plot(results_df, "resistance", config, output_dir)
-        create_hysteresis_analysis_plot(results_df, "resistance", config, output_dir)
         create_hysteresis_analysis_plot(results_df, "resistance", config, output_dir)
         
         # Analyze critical temperature with hysteresis
@@ -1023,6 +1127,10 @@ def main():
             logging.info(f"FINAL SUMMARY - Statistics: {tc_stats}")
         else:
             logging.warning("FINAL SUMMARY - Critical temperature analysis did not return a valid result")
+        
+        # Save analysis results to CSV
+        save_analysis_results(tc_result, tc_methods, tc_stats, tc_up, tc_down, 
+                             ramp_up_data, ramp_down_data, output_dir, "resistance_ramp")
         
     finally:
         # Shut down heater and sourcemeter
