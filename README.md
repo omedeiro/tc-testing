@@ -20,6 +20,16 @@ A temperature ramp test script that demonstrates the controller's ramping capabi
 - Configurable ramp rates and hold times
 - Generates phase-colored plots showing ramp progression
 
+### `run_measure_resistance_ramp.py`
+A combined temperature ramp and resistance measurement script that:
+- Simultaneously controls temperature and measures electrical resistance
+- Uses Keithley 2400 sourcemeter for 2-wire resistance measurements
+- Sources constant current (1 µA) and measures voltage to calculate resistance
+- Records temperature, voltage, and resistance data throughout the ramp
+- Analyzes temperature coefficient of resistance
+- Generates comprehensive plots including resistance vs temperature
+- Automatically enables/disables sourcemeter output with the temperature ramp
+
 ## Usage
 
 ### Temperature Step Response Test:
@@ -48,9 +58,22 @@ This script will:
 5. Ramp back down to starting temperature
 6. Analyze ramp performance and save results to `ramp_test_results/`
 
+### Resistance Measurement Ramp Test:
+```bash
+python scripts/run_measure_resistance_ramp.py
+```
+
+This script will:
+1. Connect to the Lakeshore 336 controller and Keithley 2400 sourcemeter
+2. Set initial temperature and wait for stability
+3. Enable resistance measurement and set constant current
+4. Ramp to target temperature, hold, then ramp back down
+5. Record temperature, voltage, and resistance data
+6. Analyze temperature coefficient of resistance and save results to `resistance_ramp_results/`
+
 ## Configuration
 
-### Step Response Test
+### Temperature Step Response Test
 Edit `configs/step_response_config.yaml` to customize:
 
 ```yaml
@@ -82,6 +105,31 @@ ramp_test:
   hold_time: 60          # Hold time at target (s)
 ```
 
+### Resistance Measurement Ramp Test
+Edit `configs/resistance_ramp_config.yaml` to customize:
+
+```yaml
+instrument:
+  port: "GPIB0::12::INSTR"
+  output_channel: 1
+
+sourcemeter:
+  port: "GPIB0::24::INSTR"
+  current_level: 1.0e-6    # Source current for resistance measurement (A)
+
+ramp_test:
+  start_temp: 3.5          # Starting temperature (K)
+  target_temp: 6.0         # Target temperature (K)
+  ramp_rate: 1.0           # Ramp rate (K/min)
+  recording_interval: 1.0  # Data recording interval (s)
+  hold_time: 60            # Hold time at target (s)
+
+pid:
+  P: 100                   # Proportional gain
+  I: 25                    # Integral gain
+  D: 15                    # Derivative gain
+```
+
 Available ramp rate presets:
 - `slow_ramp`: 0.5 K/min, 2 min hold
 - `medium_ramp`: 1.0 K/min, 1 min hold  
@@ -107,6 +155,15 @@ ramp_test_results/
 └── ramp_test_YYYYMMDD_HHMMSS.png      # Ramp plots with phase coloring
 ```
 
+### Resistance Measurement Ramp Test
+```
+resistance_ramp_results/
+├── resistance_ramp.log                 # Detailed test log
+├── resistance_ramp_YYYYMMDD_HHMMSS.csv # Raw data with temperature, voltage, resistance
+├── resistance_ramp_YYYYMMDD_HHMMSS.png # Time-series plots (temp, resistance, error)
+└── resistance_vs_temp_YYYYMMDD_HHMMSS.png # Resistance vs temperature plot with linear fit
+```
+
 ### Output Files:
 - **Log files**: Real-time test progress and analysis results
 - **CSV files**: Complete time-series data with temperature, setpoint, errors, and test phases
@@ -114,11 +171,15 @@ ramp_test_results/
 
 ## Features
 
-- **Multiple test types**: Step response and linear ramp tests
+- **Multiple test types**: Step response, linear ramp tests, and resistance measurement
+- **Simultaneous measurements**: Combined temperature control and electrical resistance measurements
 - **Built-in controller functions**: Uses Lakeshore 336's native ramping capabilities
+- **2-wire resistance measurement**: Configurable current source with voltage measurement
+- **Temperature coefficient analysis**: Automatic calculation of dR/dT
 - **Configuration-driven**: All parameters controlled via YAML config files
 - **Robust logging**: Detailed console and file logging for debugging
 - **Automatic stability checking**: Waits for temperature stabilization
+- **Instrument coordination**: Synchronized control of temperature controller and sourcemeter
 - **Error handling**: Setpoint retry logic and connection verification
 - **Real-time monitoring**: Progress updates during test execution
 - **Comprehensive analysis**: Automatic calculation of response and ramp characteristics
@@ -130,3 +191,4 @@ ramp_test_results/
 - qnnpy library
 - pandas, numpy, pyyaml, matplotlib
 - Lakeshore 336 connected via GPIB
+- Keithley 2400 sourcemeter (for resistance measurement script)
