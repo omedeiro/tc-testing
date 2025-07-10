@@ -10,8 +10,8 @@ Save Root: "S:\\SC\\Measurements"  # Path to shared NAS drive
 
 Save File:
   sample name: SPG806
-  device type: C6
-  device name: B5
+  device type: C5
+  device name: C3
   cell: ""  # Empty cell field to prevent qnnpy save crash
 
 
