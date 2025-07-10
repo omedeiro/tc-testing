@@ -1,6 +1,19 @@
 # Configuration for resistance ramp test
 # Combines temperature ramping with resistance measurements
 
+# User information
+User:
+  name: OM  # Change this to actual user name
+
+# Save Root path for NAS storage
+Save Root: "S:\\SC\\Measurements"  # Path to shared NAS drive
+
+Save File:
+  sample name: SPG806
+  device type: C6
+  device name: B6
+
+
 instrument:
   port: 'GPIB0::12::INSTR'  # Lakeshore 336 GPIB address
   output_channel: 1          # Heater output channel
@@ -11,7 +24,7 @@ sourcemeter:
   # Enhanced noise reduction parameters
   integration_time_plc: 10.0  # Integration time in power line cycles (higher = less noise)
   filter_count: 10            # Digital filter count for moving average
-  num_averages: 10            # Number of measurements to average per data point
+  num_averages: 5            # Number of measurements to average per data point
   settling_time: 0.1          # Settling time between measurements (seconds)
 
 # dR/dT filtering options to reduce noise in derivative calculations
@@ -28,23 +41,22 @@ derivative_filtering:
   preserve_peaks: true       # Use peak-preserving filtering when possible
 
 ramp_test:
-  start_temp: 5.0            # Starting temperature in Kelvin
+  start_temp: 3.5            # Starting temperature in Kelvin
   target_temp: 13.0           # Target temperature in Kelvin
   ramp_rate: 0.5              # Ramp rate in K/min
   recording_interval: 1.0    # Data recording interval in seconds
   hold_time: 60              # Hold time at target temperature in seconds
 
 pid:
-  P: 100                      # Proportional gain (reduced from 100 for better stability)
-  I: 70                      # Integral gain (increased from 25 to counter cooling disturbances)
-  D: 5                       # Derivative gain (reduced from 15 to prevent noise amplification)
-  
+  P: 90                      # Proportional gain
+  I: 50                       # Integral gain
+  D: 5                       # Derivative gain
+
 # Additional temperature control settings for coldstage stability
 temperature_control:
-  heater_range: 2            # Heater range (1=low, 2=medium, 3=high) - medium for better control
+  heater_range: 3            # Heater range (1=low, 2=medium, 3=high) - medium for better control
   manual_output: 0           # Manual heater output percentage (0=auto PID mode)
   max_heater_output: 100     # Maximum heater output limit (percentage)
-  ramp_rate_limit: 1.0       # Maximum ramp rate limit in K/min to prevent overshoot
 
 # Noise Reduction Notes:
 # - integration_time_plc: 1 PLC = 16.7ms (60Hz), higher values reduce noise but slow measurements
