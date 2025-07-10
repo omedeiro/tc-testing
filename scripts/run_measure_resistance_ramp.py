@@ -1412,16 +1412,108 @@ def create_measurement_summary(config, tc_result, tc_methods, tc_stats, tc_up, t
         logging.error(f"Failed to create measurement summary: {str(e)}")
         return None
 
+def save_data_to_nas(df, config, run_timestamp, measurement_name="resistance_ramp"):
+    """Save measurement data to NAS using qnnpy.functions.functions.save()."""
+    try:
+        # Convert DataFrame to dictionary format expected by save function
+        data_dict = {}
+        
+        # Convert each column to a numpy array for .mat file compatibility
+        for column in df.columns:
+            # Handle NaN values by converting to numpy arrays
+            data = df[column].values
+            # Replace NaN with a placeholder value or remove them
+            if column in ['voltage_V', 'resistance_ohm']:
+                # For voltage and resistance, keep NaN as is (MATLAB can handle NaN)
+                data_dict[column.replace('_', '')] = data  # Remove underscores for MATLAB compatibility
+            else:
+                # For other data, convert to appropriate format
+                data_dict[column.replace('_', '')] = data
+        
+        # Add metadata
+        data_dict['timestamp'] = np.array([run_timestamp], dtype='U20')  # Store as string array
+        data_dict['config_info'] = np.array([f"Sample: {config['Save File']['sample name']}, "
+                                           f"Device: {config['Save File']['device name']}, "
+                                           f"Type: {config['Save File']['device type']}"], dtype='U200')
+        
+        # Save using qnnpy save function
+        file_path, time_str = qf.save(
+            parameters=config,
+            measurement=measurement_name,
+            data_dict=data_dict,
+            instrument_list=['instrument', 'sourcemeter'],  # Include relevant instrument sections
+            db=True  # Enable database logging
+        )
+        
+        logging.info(f"Data saved to NAS: {file_path}")
+        return file_path
+        
+    except Exception as e:
+        logging.error(f"Failed to save data to NAS: {str(e)}")
+        logging.info("Data saved locally only")
+        return None
+
+def save_plots_to_nas(plot_filenames, config, measurement_name="resistance_ramp"):
+    """Copy plot files to the NAS directory structure."""
+    try:
+        # Get the save path structure from qnnpy save function (without data_dict to get path only)
+        # Since we need the same path structure, we can derive it from the config
+        
+        # Recreate the path structure used by qnnpy save function
+        if "Save Root" in config:
+            base_path = config["Save Root"]
+        else:
+            base_path = "S:\\SC\\Measurements"
+        
+        sample_name = config["Save File"]["sample name"]
+        device_name = config["Save File"]["device name"] 
+        device_type = config["Save File"]["device type"]
+        
+        # Build path similar to qnnpy save function
+        nas_dir = os.path.join(base_path, sample_name, device_type, device_name, measurement_name)
+        os.makedirs(nas_dir, exist_ok=True)
+        
+        # Copy each plot file to NAS
+        for local_plot_path in plot_filenames:
+            if os.path.exists(local_plot_path):
+                filename = os.path.basename(local_plot_path)
+                nas_plot_path = os.path.join(nas_dir, filename)
+                
+                try:
+                    import shutil
+                    shutil.copy2(local_plot_path, nas_plot_path)
+                    logging.info(f"Plot copied to NAS: {nas_plot_path}")
+                except Exception as e:
+                    logging.warning(f"Failed to copy plot {filename} to NAS: {str(e)}")
+        
+        return nas_dir
+        
+    except Exception as e:
+        logging.error(f"Failed to copy plots to NAS: {str(e)}")
+        return None
+
+# ...existing code...
+
 def main():
     """Main function to run resistance ramp test."""
     
     logging.info("Resistance Ramp Test - Lakeshore 336 + Keithley 2400")
+    
+    # Get the run timestamp for this execution
+    global run_timestamp
     
     # Load configuration
     config = load_config("../configs/resistance_ramp_config.yaml")
     if config is None:
         # Default configuration
         config = {
+            'User': {'name': 'Lab_User'},
+            'Save Root': 'S:\\SC\\Measurements',
+            'Save File': {
+                'sample name': 'TEST_SAMPLE',
+                'device type': 'C6',
+                'device name': 'TEST_DEVICE'
+            },
             'instrument': {'port': 'GPIB0::12::INSTR', 'output_channel': 1},
             'sourcemeter': {'port': 'GPIB0::23::INSTR', 'current_level': 1e-6},  # 1 µA
             'ramp_test': {
@@ -1437,6 +1529,12 @@ def main():
                 'D': 15
             }
         }
+    
+    # Ensure required fields exist for NAS saving
+    if 'User' not in config:
+        config['User'] = {'name': 'Lab_User'}
+    if 'Save Root' not in config:
+        config['Save Root'] = 'S:\\SC\\Measurements'
     
     # Initialize instruments with timeout handling
     logging.info("Connecting to instruments...")
@@ -1485,15 +1583,32 @@ def main():
         # Analyze and save results
         analyze_resistance_results(results_df)
         
-        # Save raw data
+        # Save raw data locally
         filename = os.path.join(output_dir, "resistance_ramp_data.csv")
         results_df.to_csv(filename, index=False)
-        logging.info(f"✓ Raw sweep data saved to: {filename}")
+        logging.info(f"✓ Raw sweep data saved locally to: {filename}")
         
-        # Create plots
-        create_resistance_ramp_plot(results_df, "resistance_ramp", config, output_dir)
-        create_resistance_vs_temperature_plot(results_df, "resistance", config, output_dir)
-        create_critical_temperature_analysis_plot(results_df, "resistance", config, output_dir)
+        # Create plots locally
+        plot_filenames = []
+        plot_file1 = create_resistance_ramp_plot(results_df, "resistance_ramp", config, output_dir)
+        plot_file2 = create_resistance_vs_temperature_plot(results_df, "resistance", config, output_dir)
+        plot_file3 = create_critical_temperature_analysis_plot(results_df, "resistance", config, output_dir)
+        
+        if plot_file1:
+            plot_filenames.append(plot_file1)
+        if plot_file2:
+            plot_filenames.append(plot_file2)
+        if plot_file3:
+            plot_filenames.append(plot_file3)
+        
+        # Save data to NAS using qnnpy save function
+        logging.info("Saving data to NAS...")
+        nas_file_path = save_data_to_nas(results_df, config, run_timestamp, "resistance_ramp")
+        
+        # Copy plots to NAS
+        if nas_file_path and plot_filenames:
+            logging.info("Copying plots to NAS...")
+            nas_plot_dir = save_plots_to_nas(plot_filenames, config, "resistance_ramp")
         
         # Analyze critical temperature with hysteresis
         tc_result, tc_methods, tc_stats = analyze_critical_temperature(results_df)
@@ -1540,7 +1655,11 @@ def main():
                                   ramp_up_data, ramp_down_data, output_dir)
         
         logging.info("=" * 60)
-        logging.info(f"✓ All results saved to: {output_dir}")
+        logging.info(f"✓ Local results saved to: {output_dir}")
+        if nas_file_path:
+            logging.info(f"✓ NAS data saved to: {nas_file_path}")
+        if 'nas_plot_dir' in locals() and nas_plot_dir:
+            logging.info(f"✓ NAS plots saved to: {nas_plot_dir}")
         logging.info("=" * 60)
         
         # Create measurement summary
