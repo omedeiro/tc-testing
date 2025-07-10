@@ -9,10 +9,10 @@ file_patterns:
 
 # Data source configuration
 data_source:
-  base_path: "S:\\SC\\Measurements\\SPG806\\C6"  # Base path to measurement data
+  base_path: "S:\\SC\\Measurements\\SPG806\\C5"  # Base path to measurement data
   measurement_type: "resistance_ramp"            # Type of measurement to analyze
   sample_name: "SPG806"                          # Sample identifier
-  device_type: "C6"                              # Device type identifier
+  device_type: "C5"                              # Device type identifier
 
 # Matrix configuration
 matrix:
