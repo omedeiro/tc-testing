@@ -1,0 +1,58 @@
+# Device Matrix Analysis Configuration
+# Configuration file for analyzing critical temperature across device matrix
+
+# File patterns and requirements
+file_patterns:
+  data_file_pattern: "*resistance_ramp*.mat"  # Pattern to match data files
+  date_extraction_pattern: "\\d{8}_\\d{6}"   # Pattern to extract dates from filenames
+  required_columns: ["resistance_ohm", "actual_temp_K"]  # Required columns in data files
+
+# Data source configuration
+data_source:
+  base_path: "S:\\SC\\Measurements\\SPG806\\C6"  # Base path to measurement data
+  measurement_type: "resistance_ramp"            # Type of measurement to analyze
+  sample_name: "SPG806"                          # Sample identifier
+  device_type: "C6"                              # Device type identifier
+
+# Matrix configuration
+matrix:
+  rows: ['A', 'B', 'C', 'D', 'E', 'F', 'G']     # Row identifiers (A-G)
+  columns: ['1', '2', '3', '4', '5', '6', '7']   # Column identifiers (1-7)
+  total_devices: 49                              # Total expected devices
+
+# Analysis parameters
+analysis:
+  min_data_points: 10                            # Minimum data points for valid analysis
+  tc_consistency_threshold: 0.05                 # Max std dev for "good" quality (K)
+  smoothing_enabled: true                        # Enable data smoothing
+  smoothing_method: "savgol"                     # savgol, moving_average, or none
+  smoothing_window: 11                           # Window size for smoothing
+
+# Quality thresholds
+quality:
+  good_std_threshold: 0.05                       # K - std dev threshold for "good" quality
+  fair_std_threshold: 0.1                        # K - std dev threshold for "fair" quality
+  min_measurements_for_average: 2                # Minimum measurements to calculate average
+
+# Output configuration
+output:
+  base_directory: "device_matrix_analysis_results"
+  include_timestamp: true
+  save_plots: true
+  save_csv: true
+  plot_dpi: 300
+  
+# Plotting configuration
+plotting:
+  heatmap_colormap: "RdYlBu_r"                   # Colormap for Tc heatmap
+  figure_size: [16, 12]                          # Figure size for main plot
+  font_size: 10                                  # Font size for annotations
+  show_plots: true                               # Display plots during analysis
+
+# Logging configuration
+logging:
+  level: "INFO"                                  # DEBUG, INFO, WARNING, ERROR
+  save_log: true
+  log_format: "%(asctime)s - %(levelname)s - %(message)s"
+  save_log: true                                 # Save log to file
+  log_format: "%(asctime)s - %(levelname)s - %(message)s"
