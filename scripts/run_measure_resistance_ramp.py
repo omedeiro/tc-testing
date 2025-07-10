@@ -1415,6 +1415,12 @@ def create_measurement_summary(config, tc_result, tc_methods, tc_stats, tc_up, t
 def save_data_to_nas(df, config, run_timestamp, measurement_name="resistance_ramp"):
     """Save measurement data to NAS using qnnpy.functions.functions.save()."""
     try:
+        # Fix the qnnpy save function bug - it expects a 'cell' field or crashes
+        # Make sure the config has all required fields for qnnpy
+        config_copy = config.copy()
+        if 'cell' not in config_copy['Save File'] or not config_copy['Save File']['cell']:
+            config_copy['Save File']['cell'] = ""  
+        
         # Convert DataFrame to dictionary format expected by save function
         data_dict = {}
         
@@ -1437,11 +1443,11 @@ def save_data_to_nas(df, config, run_timestamp, measurement_name="resistance_ram
                                            f"Type: {config['Save File']['device type']}"], dtype='U200')
         
         # Save using qnnpy save function
+        # Don't provide instrument_list to avoid missing config sections
         file_path, time_str = qf.save(
-            parameters=config,
+            parameters=config_copy,  # Use the fixed config
             measurement=measurement_name,
             data_dict=data_dict,
-            instrument_list=['instrument', 'sourcemeter'],  # Include relevant instrument sections
             db=True  # Enable database logging
         )
         

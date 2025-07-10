@@ -12,6 +12,7 @@ Save File:
   sample name: SPG806
   device type: C6
   device name: B6
+  cell: ""  # Empty cell field to prevent qnnpy save crash
 
 
 instrument:
