@@ -1,33 +1,33 @@
 # Device Matrix Tc Analysis Results
 
-Analysis performed on: 2025-07-10 13:20:41
+Analysis performed on: 2025-07-10 15:08:30
 
 ## Configuration
 
-- **Base Data Path**: S:\SC\Measurements\SPG806\C6
+- **Base Data Path**: S:\SC\Measurements\SPG806\C5
 - **Sample**: SPG806
-- **Device Type**: C6
+- **Device Type**: C5
 - **Measurement Type**: resistance_ramp
 - **Matrix Size**: 7×7 = 49 devices
 
 ## Analysis Summary
 
 - **Total devices in matrix**: 49
-- **Devices with measurement data**: 1
-- **Devices with valid Tc measurements**: 1
-- **Overall success rate**: 2.0%
+- **Devices with measurement data**: 3
+- **Devices with valid Tc measurements**: 3
+- **Overall success rate**: 6.1%
 
 ### Critical Temperature Statistics
 
-- **Mean Tc**: 8.631 ± 0.000 K
+- **Mean Tc**: 8.672 ± 0.087 K
 - **Median Tc**: 8.631 K
-- **Tc Range**: 8.631 - 8.631 K
-- **Coefficient of Variation**: 0.0%
+- **Tc Range**: 8.591 - 8.793 K
+- **Coefficient of Variation**: 1.0%
 
 ### Quality Assessment
 
-- **No Data**: 48 devices
-- **Good**: 1 devices
+- **No Data**: 46 devices
+- **Good**: 3 devices
 
 ## Files Generated
 
@@ -80,12 +80,12 @@ The best estimate is chosen based on consistency between methods.
 | B2 | 0 | N/A | N/A | no_data | N/A |
 | B3 | 0 | N/A | N/A | no_data | N/A |
 | B4 | 0 | N/A | N/A | no_data | N/A |
-| B5 | 0 | N/A | N/A | no_data | N/A |
+| B5 | 1 | 8.591 | 0.000 | good | 2025-07-10 |
 | B6 | 1 | 8.631 | 0.000 | good | 2025-07-10 |
 | B7 | 0 | N/A | N/A | no_data | N/A |
 | C1 | 0 | N/A | N/A | no_data | N/A |
 | C2 | 0 | N/A | N/A | no_data | N/A |
-| C3 | 0 | N/A | N/A | no_data | N/A |
+| C3 | 1 | 8.793 | 0.000 | good | 2025-07-10 |
 | C4 | 0 | N/A | N/A | no_data | N/A |
 | C5 | 0 | N/A | N/A | no_data | N/A |
 | C6 | 0 | N/A | N/A | no_data | N/A |
