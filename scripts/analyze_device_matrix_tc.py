@@ -48,19 +48,29 @@ def load_config(config_file="configs/device_matrix_analysis_config.yaml"):
 # Load configuration
 CONFIG = load_config()
 
+# Set up output directory early for logging
+output_base_dir = CONFIG['output']['base_directory'] if CONFIG else "device_matrix_analysis_results"
+os.makedirs(output_base_dir, exist_ok=True)
+os.makedirs(os.path.join(output_base_dir, "data"), exist_ok=True)
+
 # Set up logging based on config
 log_level = getattr(logging, CONFIG['logging']['level'] if CONFIG else 'INFO')
 log_handlers = [logging.StreamHandler()]
 
-if CONFIG and CONFIG['logging']['save_log']:
+if CONFIG is None or CONFIG['logging']['save_log']:
     log_filename = f'device_matrix_analysis_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log'
-    log_handlers.append(logging.FileHandler(log_filename))
+    log_filepath = os.path.join(output_base_dir, "data", log_filename)
+    log_handlers.append(logging.FileHandler(log_filepath))
 
 logging.basicConfig(
     level=log_level,
     format=CONFIG['logging']['log_format'] if CONFIG else '%(asctime)s - %(levelname)s - %(message)s',
     handlers=log_handlers
 )
+
+# Log the log file location
+if len(log_handlers) > 1:  # More than just console handler
+    logging.info(f"Log file will be saved to: {log_filepath}")
 
 # Configuration with defaults
 if CONFIG:
@@ -1138,9 +1148,9 @@ def create_analysis_readme(analysis_results, tc_matrix, output_dir):
         f.write("### Data Files (in `data/` directory)\n")
         f.write("- `device_matrix_summary.csv` - Summary data (one row per device)\n")
         f.write("- `device_matrix_detailed.csv` - Detailed data (one row per measurement)\n")
-        f.write("- `tc_matrix.csv` - Matrix format for external analysis\n\n")
+        f.write("- `tc_matrix.csv` - Matrix format for external analysis\n")
+        f.write("- `device_matrix_analysis_YYYYMMDD_HHMMSS.log` - Analysis log file\n\n")
         f.write("### Other Files\n")
-        f.write("- Analysis log file\n")
         f.write("- This README file\n\n")
         
         # Methodology
