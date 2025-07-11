@@ -23,10 +23,10 @@ sourcemeter:
   port: 'GPIB0::23::INSTR'   # Keithley 2400 GPIB address
   current_level: 1.0e-6      # Source current in Amperes (1 µA)
   # Enhanced noise reduction parameters
-  integration_time_plc: 10.0  # Integration time in power line cycles (higher = less noise)
+  integration_time_plc: 1.0  # Integration time in power line cycles (higher = less noise)
   filter_count: 10            # Digital filter count for moving average
-  num_averages: 5            # Number of measurements to average per data point
-  settling_time: 0.1          # Settling time between measurements (seconds)
+  num_averages: 2            # Number of measurements to average per data point
+  settling_time: 0            # Settling time between measurements (seconds)
 
 # dR/dT filtering options to reduce noise in derivative calculations
 derivative_filtering:
@@ -45,7 +45,7 @@ ramp_test:
   start_temp: 3.5            # Starting temperature in Kelvin
   target_temp: 13.0           # Target temperature in Kelvin
   ramp_rate: 0.5              # Ramp rate in K/min
-  recording_interval: 1.0    # Data recording interval in seconds
+  recording_interval: 0.08       # Data recording interval in seconds
   hold_time: 60              # Hold time at target temperature in seconds
 
 pid:
@@ -56,8 +56,9 @@ pid:
 # Additional temperature control settings for coldstage stability
 temperature_control:
   heater_range: 3            # Heater range (1=low, 2=medium, 3=high) - medium for better control
-  manual_output: 0           # Manual heater output percentage (0=auto PID mode)
+  manual_output: 16           # Manual heater output percentage (0=auto PID mode, nonzero => PID disabled)
   max_heater_output: 100     # Maximum heater output limit (percentage)
+  auto_shutoff_temp: 25      # Auto shutoff temperature in Kelvin (to prevent damage)
 
 # Noise Reduction Notes:
 # - integration_time_plc: 1 PLC = 16.7ms (60Hz), higher values reduce noise but slow measurements

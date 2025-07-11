@@ -19,6 +19,14 @@ def load_config(config_file):
         logging.warning(f"Config file {config_file} not found. Using defaults.")
         return None
 
+"""
+ def set_manual_output(self, output=1, value=0):
+    self.write("MOUT " + str(output) + "," + str(value))
+
+def set_auto_shutoff_temp(self, channel="A", temperature=100):
+    self.write("TLIMIT " + channel + "," + str(temperature))
+"""
+
 
 def setup_controller(inst: Lakeshore336, output, config):
     """Configure the temperature controller for testing."""
@@ -29,53 +37,62 @@ def setup_controller(inst: Lakeshore336, output, config):
     heater_range = temp_control_config.get('heater_range', 2)  # Default to medium range
     manual_output = temp_control_config.get('manual_output', 0)  # 0 = auto PID mode
     max_heater_output = temp_control_config.get('max_heater_output', 100)
-    
+    auto_shutoff_temp = temp_control_config.get('auto_shutoff_temp', 100) # Default to 100K
+
+
     # Enable PID control with specified heater range
     logging.info(f"Setting heater range to {heater_range} (1=low, 2=medium, 3=high)")
-    inst.set_output(output=output, mode=1, input_sensor=1, enable=1)
+    inst.set_output(output=output, mode=1 if manual_output == 0 else 3, input_sensor=1, enable=1)
     inst.set_range(output=output, range_set=heater_range)
-    
+
+    logging.info(f"Configuring auto shutoff temperature to {auto_shutoff_temp}K")
+    #inst.set_auto_shutoff_temp(channel="A", temperature=auto_shutoff_temp)
+    #inst.set_auto_shutoff_temp(channel="B", temperature=auto_shutoff_temp)
+    inst.write("TLIMIT A, " + str(auto_shutoff_temp))
+    inst.write("TLIMIT B, " + str(auto_shutoff_temp))
+
     # Set manual output if specified (0 = auto PID mode)
     if manual_output > 0:
-        logging.info(f"Setting manual heater output to {manual_output}%")
-        inst.set_manual_output(output=output, value=manual_output)
+        logging.info(f"Using manual control mode at {manual_output}% ({manual_output * 5 * 10**(heater_range-4)} W)")
+        # inst.set_manual_output(output=output, value=manual_output)
+        inst.write("MOUT " + str(output) + ", 0")
     else:
         logging.info("Using automatic PID control mode")
     
-    # Configure PID parameters
-    pid_config = config.get('pid', {}) if config else {}
-    p_value = pid_config.get('P', 50)   # Proportional gain (reduced default)
-    i_value = pid_config.get('I', 50)   # Integral gain (increased default)
-    d_value = pid_config.get('D', 5)    # Derivative gain (reduced default)
-    
-    logging.info(f"Setting PID parameters: P={p_value}, I={i_value}, D={d_value}")
-    inst.set_pid(output=output, P=p_value, I=i_value, D=d_value)
-    
-    # Verify PID settings
-    time.sleep(0.5)
-    current_pid = inst.get_pid(output=output)
-    pid_values = current_pid.strip().split(',')
-    
-    if len(pid_values) == 3:
-        actual_p = float(pid_values[0])
-        actual_i = float(pid_values[1])
-        actual_d = float(pid_values[2])
+        # Configure PID parameters
+        pid_config = config.get('pid', {}) if config else {}
+        p_value = pid_config.get('P', 50)   # Proportional gain (reduced default)
+        i_value = pid_config.get('I', 50)   # Integral gain (increased default)
+        d_value = pid_config.get('D', 5)    # Derivative gain (reduced default)
         
-        logging.info(f"PID verification: P={actual_p}, I={actual_i}, D={actual_d}")
+        logging.info(f"Setting PID parameters: P={p_value}, I={i_value}, D={d_value}")
+        inst.set_pid(output=output, P=p_value, I=i_value, D=d_value)
         
-        # Check if values match (within tolerance)
-        if (abs(actual_p - p_value) < 0.1 and 
-            abs(actual_i - i_value) < 0.1 and 
-            abs(actual_d - d_value) < 0.1):
-            logging.info("✓ PID settings verified successfully")
+        # Verify PID settings
+        time.sleep(0.5)
+        current_pid = inst.get_pid(output=output)
+        pid_values = current_pid.strip().split(',')
+        
+        if len(pid_values) == 3:
+            actual_p = float(pid_values[0])
+            actual_i = float(pid_values[1])
+            actual_d = float(pid_values[2])
+            
+            logging.info(f"PID verification: P={actual_p}, I={actual_i}, D={actual_d}")
+            
+            # Check if values match (within tolerance)
+            if (abs(actual_p - p_value) < 0.1 and 
+                abs(actual_i - i_value) < 0.1 and 
+                abs(actual_d - d_value) < 0.1):
+                logging.info("✓ PID settings verified successfully")
+            else:
+                logging.warning(f"⚠ PID mismatch! Expected: P={p_value}, I={i_value}, D={d_value}")
         else:
-            logging.warning(f"⚠ PID mismatch! Expected: P={p_value}, I={i_value}, D={d_value}")
-    else:
-        logging.warning(f"⚠ Could not parse PID response: {current_pid}")
+            logging.warning(f"⚠ Could not parse PID response: {current_pid}")
     
     # Log final heater configuration
-    logging.info(f"Heater configuration: Range={heater_range}, Max Output={max_heater_output}%")
-    
+    logging.info(f"Heater configuration: Range={heater_range}, Max Output={max_heater_output}%" + ("" if manual_output == 0 else f", Manual Output={manual_output}%"))
+
     return True
 
 

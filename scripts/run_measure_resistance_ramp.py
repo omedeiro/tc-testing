@@ -159,6 +159,10 @@ def perform_resistance_ramp_test(temp_controller, sourcemeter, config):
     output = config['instrument']['output_channel']
     recording_interval = config['ramp_test']['recording_interval']
     hold_time = config['ramp_test']['hold_time']
+
+    manual_output = config.get('temperature_control', {}).get('manual_output', 0)
+    
+    direct_mode = manual_output != 0
     current_level = config['sourcemeter'].get('current_level', 1e-6)
     
     # Enhanced measurement parameters for noise reduction
@@ -174,20 +178,38 @@ def perform_resistance_ramp_test(temp_controller, sourcemeter, config):
     if not setup_sourcemeter(sourcemeter, current_level, nplc, filter_count):
         raise RuntimeError("Failed to setup sourcemeter")
     
-    # Set initial setpoint without ramping
-    logging.info(f"Setting initial setpoint to {start_temp}K (no ramp)")
-    configure_ramp(temp_controller, output, ramp_rate, enable=False, config=config)
-    set_setpoint_with_retry(temp_controller, start_temp, output)
-    
-    logging.info(f"Waiting for stability at {start_temp}K...")
-    stabilized, actual_temp, wait_time = wait_for_stability(
-        temp_controller, start_temp, tolerance=0.1, max_wait=300
-    )
-    
-    if not stabilized:
-        logging.warning(f"Did not stabilize at start temp. Current: {actual_temp:.3f}K")
+    if not direct_mode:
+        # Set initial setpoint without ramping
+        logging.info(f"Setting initial setpoint to {start_temp}K (no ramp)")
+        configure_ramp(temp_controller, output, ramp_rate, enable=False, config=config)
+        set_setpoint_with_retry(temp_controller, start_temp, output)
+        logging.info(f"Waiting for stability at {start_temp}K...")
+        stabilized, actual_temp, wait_time = wait_for_stability(
+            temp_controller, start_temp, tolerance=0.1, max_wait=300
+        )
+        
+        if not stabilized:
+            logging.warning(f"Did not stabilize at start temp. Current: {actual_temp:.3f}K")
+        else:
+            logging.info(f"Stabilized at {actual_temp:.3f}K after {wait_time:.1f}s")
     else:
-        logging.info(f"Stabilized at {actual_temp:.3f}K after {wait_time:.1f}s")
+        # Reach within 100mK of start temp manually
+        if temp_controller.read_temp('A') > start_temp:
+            logging.info("Disabling manual heater output")
+            temp_controller.write("MOUT " + str(output) + ", 0")
+        else:
+            logging.info("Enabling manual heater output")
+            temp_controller.write("MOUT " + str(output) + ", " + str(manual_output))
+
+        
+        logging.info(f"Waiting to reach {start_temp}K...")
+        
+        while abs(temp_controller.read_temp('A') - start_temp) > 0.1:
+            time.sleep(0.1)
+
+        logging.info(f"Reached start temperature: {temp_controller.read_temp('A'):.3f}K")
+        temp_controller.write("MOUT " + str(output) + ", 0")
+    
     
     # Turn on sourcemeter output
     logging.info("Turning on sourcemeter output...")
@@ -200,6 +222,8 @@ def perform_resistance_ramp_test(temp_controller, sourcemeter, config):
     ramp_up_started = False
     ramp_down_started = False
     hold_started = False
+
+    
     
     logging.info(f"Starting resistance ramp test: {start_temp}K -> {target_temp}K @ {ramp_rate:.2f} K/min")
     logging.info(f"Sourcemeter current: {current_level*1e6:.1f} µA")
@@ -207,44 +231,69 @@ def perform_resistance_ramp_test(temp_controller, sourcemeter, config):
     try:
         while True:
             current_time = time.time() - test_start_time
+            actual_temp = float(temp_controller.read_temp(channel="A"))
             
-            # Start ramp up
-            if not ramp_up_started and current_time > 10:  # Start ramp after 10s baseline
-                logging.info(f"Starting ramp up to {target_temp}K")
-                configure_ramp(temp_controller, output, ramp_rate, enable=True, config=config)
-                set_setpoint_for_ramp(temp_controller, target_temp, output)
-                ramp_up_started = True
-                ramp_up_time = current_time
-                logging.info(f"Ramp started - setpoint will gradually change to {target_temp}K")
-            
-            # Check if we've reached target and start hold phase
-            if ramp_up_started and not hold_started:
-                current_setpoint = float(temp_controller.get_setpoint(output=output))
-                if abs(current_setpoint - target_temp) < 0.05:  # Setpoint has reached target
-                    logging.info(f"Reached target setpoint ({current_setpoint:.3f}K), starting hold phase")
+            if direct_mode:
+                # Perform direct ramp based on temperature readings
+                cur_temp = actual_temp
+                if not ramp_up_started and current_time > 3:
+                    logging.info(f"Starting manual ramp to {target_temp}K")
+                    temp_controller.write("MOUT " + str(output) + ", " + str(manual_output))
+                    ramp_up_started = True
+                    ramp_up_time = current_time
+                    logging.info(f"Manual ramp started at {cur_temp}K - will end at {target_temp}K")
+                elif not ramp_down_started and cur_temp > target_temp:
+                    logging.info(f"Exceeded target temperature ({cur_temp:.3f}K), starting manual ramp down to {start_temp}K")
+                    temp_controller.write("MOUT " + str(output) + ", 0")
+                    ramp_down_started = True
+                    ramp_down_time = current_time
                     hold_started = True
                     hold_start_time = current_time
-            
-            # Start ramp down after hold time
-            if hold_started and not ramp_down_started and current_time > hold_start_time + hold_time:
-                logging.info(f"Starting ramp down to {start_temp}K")
-                configure_ramp(temp_controller, output, ramp_rate, enable=True, config=config)
-                set_setpoint_for_ramp(temp_controller, start_temp, output)
-                ramp_down_started = True
-                ramp_down_time = current_time
-                logging.info(f"Ramp down started - setpoint will gradually change to {start_temp}K")
-            
-            # End test when ramp down is complete
-            if ramp_down_started:
-                current_setpoint = float(temp_controller.get_setpoint(output=output))
-                if abs(current_setpoint - start_temp) < 0.05:  # Setpoint has reached start temp
-                    logging.info(f"Ramp down complete - setpoint reached {current_setpoint:.3f}K")
-                    break
+                    logging.info(f"Manual ramp down started at {cur_temp}K - will end at {start_temp}K")
+                elif ramp_down_started and cur_temp < start_temp:
+                    logging.info(f"Reached start temperature ({cur_temp:.3f}K), ramp down complete")
+                    break  # End test when back to start temp
+            else:
+                # Start ramp up
+                if not ramp_up_started and current_time > 10:  # Start ramp after 10s baseline
+                    logging.info(f"Starting ramp up to {target_temp}K")
+                    configure_ramp(temp_controller, output, ramp_rate, enable=True, config=config)
+                    set_setpoint_for_ramp(temp_controller, target_temp, output)
+                    ramp_up_started = True
+                    ramp_up_time = current_time
+                    logging.info(f"Ramp started - setpoint will gradually change to {target_temp}K")
+                
+                # Check if we've reached target and start hold phase
+                if ramp_up_started and not hold_started:
+                    current_setpoint = float(temp_controller.get_setpoint(output=output))
+                    if abs(current_setpoint - target_temp) < 0.05:  # Setpoint has reached target
+                        logging.info(f"Reached target setpoint ({current_setpoint:.3f}K), starting hold phase")
+                        hold_started = True
+                        hold_start_time = current_time
+                
+                # Start ramp down after hold time
+                if hold_started and not ramp_down_started and current_time > hold_start_time + hold_time:
+                    logging.info(f"Starting ramp down to {start_temp}K")
+                    configure_ramp(temp_controller, output, ramp_rate, enable=True, config=config)
+                    set_setpoint_for_ramp(temp_controller, start_temp, output)
+                    ramp_down_started = True
+                    ramp_down_time = current_time
+                    logging.info(f"Ramp down started - setpoint will gradually change to {start_temp}K")
+                
+                # End test when ramp down is complete
+                if ramp_down_started:
+                    current_setpoint = float(temp_controller.get_setpoint(output=output))
+                    if abs(current_setpoint - start_temp) < 0.05:  # Setpoint has reached start temp
+                        logging.info(f"Ramp down complete - setpoint reached {current_setpoint:.3f}K")
+                        break
             
             # Record temperature data
-            actual_temp = float(temp_controller.read_temp(channel="A"))
-            controller_setpoint = float(temp_controller.get_setpoint(output=output))
-            
+            if not direct_mode:
+                controller_setpoint = float(temp_controller.get_setpoint(output=output))
+            else:
+                controller_setpoint = actual_temp
+
+
             # Record resistance data with enhanced measurement
             voltage, resistance = measure_resistance(sourcemeter, current_level, num_averages, settling_time)
             
@@ -276,15 +325,15 @@ def perform_resistance_ramp_test(temp_controller, sourcemeter, config):
             results.append(data_point)
             
             # Periodic logging
-            if len(results) % 20 == 0:
+            if len(results) % 1 == 0: # temporary, change back to 20
                 if resistance is not None:
-                    logging.info(f"t={current_time:.0f}s ({phase}): T={actual_temp:.3f}K, SP={controller_setpoint:.3f}K, "
+                    logging.info(f"t={current_time:.0f}s ({phase}): T={actual_temp:.3f}K, " + (f"SP={controller_setpoint:.3f}K, " if not direct_mode else "DIRECT, ") + 
                                f"V={voltage:.6f}V, R={resistance:.3f}Ω")
                 else:
-                    logging.info(f"t={current_time:.0f}s ({phase}): T={actual_temp:.3f}K, SP={controller_setpoint:.3f}K, "
+                    logging.info(f"t={current_time:.0f}s ({phase}): T={actual_temp:.3f}K, " + (f"SP={controller_setpoint:.3f}K, " if not direct_mode else "DIRECT, ") + 
                                f"R=ERROR")
             
-            time.sleep(recording_interval)
+            #time.sleep(recording_interval)
     
     finally:
         # Turn off sourcemeter output
