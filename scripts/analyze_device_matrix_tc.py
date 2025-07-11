@@ -908,16 +908,23 @@ def create_individual_device_plots(analysis_results, output_dir):
     cols = min(4, n_devices)
     rows = (n_devices + cols - 1) // cols
     
-    fig, axes = plt.subplots(rows, cols, figsize=(4*cols, 3*rows))
+    # Handle the single device case properly
     if n_devices == 1:
-        axes = [axes]
-    elif rows == 1:
-        axes = axes.reshape(1, -1)
+        fig, ax = plt.subplots(1, 1, figsize=(6, 4))
+        axes = [ax]  # Make it a list for consistent indexing
+    else:
+        fig, axes = plt.subplots(rows, cols, figsize=(4*cols, 3*rows))
+        
+        # Ensure axes is always a flat array for consistent indexing
+        if rows == 1 and cols == 1:
+            axes = [axes]
+        elif rows == 1 or cols == 1:
+            axes = axes.flatten()
+        else:
+            axes = axes.flatten()
     
     for idx, result in enumerate(devices_with_multiple):
-        row = idx // cols
-        col = idx % cols
-        ax = axes[row, col] if rows > 1 else axes[col]
+        ax = axes[idx]
         
         device_name = result['device']
         tc_values = result['tc_values']
@@ -944,11 +951,8 @@ def create_individual_device_plots(analysis_results, output_dir):
                 ax.legend()
     
     # Hide empty subplots
-    for idx in range(n_devices, rows * cols):
-        row = idx // cols
-        col = idx % cols
-        ax = axes[row, col] if rows > 1 else axes[col]
-        ax.set_visible(False)
+    for idx in range(n_devices, len(axes)):
+        axes[idx].set_visible(False)
     
     plt.tight_layout()
     
