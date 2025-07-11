@@ -1,6 +1,6 @@
 # Device Matrix Tc Analysis Results
 
-Analysis performed on: 2025-07-10 15:08:30
+Analysis performed on: 2025-07-11 08:51:15
 
 ## Configuration
 
@@ -13,21 +13,22 @@ Analysis performed on: 2025-07-10 15:08:30
 ## Analysis Summary
 
 - **Total devices in matrix**: 49
-- **Devices with measurement data**: 3
-- **Devices with valid Tc measurements**: 3
-- **Overall success rate**: 6.1%
+- **Devices with measurement data**: 4
+- **Devices with valid Tc measurements**: 4
+- **Overall success rate**: 8.2%
 
 ### Critical Temperature Statistics
 
-- **Mean Tc**: 8.672 ± 0.087 K
-- **Median Tc**: 8.631 K
-- **Tc Range**: 8.591 - 8.793 K
-- **Coefficient of Variation**: 1.0%
+- **Mean Tc**: 8.739 ± 0.161 K
+- **Median Tc**: 8.680 K
+- **Tc Range**: 8.591 - 9.003 K
+- **Coefficient of Variation**: 1.8%
 
 ### Quality Assessment
 
-- **No Data**: 46 devices
+- **No Data**: 45 devices
 - **Good**: 3 devices
+- **Poor**: 1 devices
 
 ## Files Generated
 
@@ -40,9 +41,9 @@ Analysis performed on: 2025-07-10 15:08:30
 - `device_matrix_summary.csv` - Summary data (one row per device)
 - `device_matrix_detailed.csv` - Detailed data (one row per measurement)
 - `tc_matrix.csv` - Matrix format for external analysis
+- `device_matrix_analysis_YYYYMMDD_HHMMSS.log` - Analysis log file
 
 ### Other Files
-- Analysis log file
 - This README file
 
 ## Analysis Methodology
@@ -85,13 +86,13 @@ The best estimate is chosen based on consistency between methods.
 | B7 | 0 | N/A | N/A | no_data | N/A |
 | C1 | 0 | N/A | N/A | no_data | N/A |
 | C2 | 0 | N/A | N/A | no_data | N/A |
-| C3 | 1 | 8.793 | 0.000 | good | 2025-07-10 |
+| C3 | 11 | 9.003 | 0.310 | poor | 2025-07-10 |
 | C4 | 0 | N/A | N/A | no_data | N/A |
 | C5 | 0 | N/A | N/A | no_data | N/A |
 | C6 | 0 | N/A | N/A | no_data | N/A |
 | C7 | 0 | N/A | N/A | no_data | N/A |
 | D1 | 0 | N/A | N/A | no_data | N/A |
-| D2 | 0 | N/A | N/A | no_data | N/A |
+| D2 | 1 | 8.728 | 0.000 | good | 2025-07-11 |
 | D3 | 0 | N/A | N/A | no_data | N/A |
 | D4 | 0 | N/A | N/A | no_data | N/A |
 | D5 | 0 | N/A | N/A | no_data | N/A |
