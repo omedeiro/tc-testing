@@ -1,6 +1,6 @@
 # Device Matrix Tc Analysis Results
 
-Analysis performed on: 2025-07-11 08:51:15
+Analysis performed on: 2025-07-11 09:48:11
 
 ## Configuration
 
@@ -13,21 +13,21 @@ Analysis performed on: 2025-07-11 08:51:15
 ## Analysis Summary
 
 - **Total devices in matrix**: 49
-- **Devices with measurement data**: 4
-- **Devices with valid Tc measurements**: 4
-- **Overall success rate**: 8.2%
+- **Devices with measurement data**: 5
+- **Devices with valid Tc measurements**: 5
+- **Overall success rate**: 10.2%
 
 ### Critical Temperature Statistics
 
-- **Mean Tc**: 8.739 ± 0.161 K
-- **Median Tc**: 8.680 K
+- **Mean Tc**: 8.745 ± 0.145 K
+- **Median Tc**: 8.728 K
 - **Tc Range**: 8.591 - 9.003 K
-- **Coefficient of Variation**: 1.8%
+- **Coefficient of Variation**: 1.7%
 
 ### Quality Assessment
 
-- **No Data**: 45 devices
-- **Good**: 3 devices
+- **No Data**: 44 devices
+- **Good**: 4 devices
 - **Poor**: 1 devices
 
 ## Files Generated
@@ -98,7 +98,7 @@ The best estimate is chosen based on consistency between methods.
 | D5 | 0 | N/A | N/A | no_data | N/A |
 | D6 | 0 | N/A | N/A | no_data | N/A |
 | D7 | 0 | N/A | N/A | no_data | N/A |
-| E1 | 0 | N/A | N/A | no_data | N/A |
+| E1 | 1 | 8.773 | 0.000 | good | 2025-07-11 |
 | E2 | 0 | N/A | N/A | no_data | N/A |
 | E3 | 0 | N/A | N/A | no_data | N/A |
 | E4 | 0 | N/A | N/A | no_data | N/A |
