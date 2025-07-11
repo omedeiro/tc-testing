@@ -17,6 +17,7 @@ pip-delete-this-directory.txt
 *.log
 *.csv
 *.png
+*.txt
 
 # Test result directories
 step_response_results/
