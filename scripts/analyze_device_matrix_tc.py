@@ -849,7 +849,7 @@ def create_enhanced_matrix_plot(tc_matrix, quality_matrix, count_matrix, analysi
             ['Devices with Data', f'{len([r for r in analysis_results if r["num_measurements"] > 0])}'],
             ['Devices with Valid Tc', f'{len(valid_tc_values)}'],
             ['Success Rate', f'{len(valid_tc_values)/(len(ROWS) * len(COLS))*100:.1f}%'],
-            ['Mean Tc', f'{np.mean(valid_tc_values):.3f} ± {np.std(valid_tc_values):.3f} K'],
+            ['Mean Tc', f'{np.mean(valid_tc_values):.3f} +/- {np.std(valid_tc_values):.3f} K'],
             ['Tc Range', f'{np.min(valid_tc_values):.3f} - {np.max(valid_tc_values):.3f} K'],
             ['Coefficient of Variation', f'{np.std(valid_tc_values)/np.mean(valid_tc_values)*100:.1f}%'],
         ]
@@ -1084,7 +1084,7 @@ def print_analysis_summary(analysis_results, tc_matrix):
     for result in multiple_measurements:
         tc_values = result['tc_values']
         logging.info(f"  {result['device']}: {len(tc_values)} measurements, "
-                    f"Tc = {result['tc_mean']:.3f} ± {result['tc_std']:.3f} K")
+                    f"Tc = {result['tc_mean']:.3f} +/- {result['tc_std']:.3f} K")
     
     logging.info("=" * 60)
 
@@ -1105,7 +1105,7 @@ def create_analysis_readme(analysis_results, tc_matrix, output_dir):
             f.write(f"- **Sample**: {CONFIG['data_source']['sample_name']}\n")
             f.write(f"- **Device Type**: {CONFIG['data_source']['device_type']}\n")
             f.write(f"- **Measurement Type**: {CONFIG['data_source']['measurement_type']}\n")
-            f.write(f"- **Matrix Size**: {len(ROWS)}×{len(COLS)} = {len(ROWS)*len(COLS)} devices\n")
+            f.write(f"- **Matrix Size**: {len(ROWS)}x{len(COLS)} = {len(ROWS)*len(COLS)} devices\n")
         else:
             f.write("- Configuration file not found, using defaults\n")
         
@@ -1125,7 +1125,7 @@ def create_analysis_readme(analysis_results, tc_matrix, output_dir):
         valid_tc_values = tc_matrix[~np.isnan(tc_matrix)]
         if len(valid_tc_values) > 0:
             f.write("### Critical Temperature Statistics\n\n")
-            f.write(f"- **Mean Tc**: {np.mean(valid_tc_values):.3f} ± {np.std(valid_tc_values):.3f} K\n")
+            f.write(f"- **Mean Tc**: {np.mean(valid_tc_values):.3f} +/- {np.std(valid_tc_values):.3f} K\n")
             f.write(f"- **Median Tc**: {np.median(valid_tc_values):.3f} K\n")
             f.write(f"- **Tc Range**: {np.min(valid_tc_values):.3f} - {np.max(valid_tc_values):.3f} K\n")
             f.write(f"- **Coefficient of Variation**: {np.std(valid_tc_values)/np.mean(valid_tc_values)*100:.1f}%\n\n")
