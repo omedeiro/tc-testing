@@ -1,0 +1,91 @@
+# Configuration for resistance ramp test
+# Combines temperature ramping with resistance measurements
+
+# User information
+User:
+  name: OM  # Change this to actual user name
+
+# Save Root path for NAS storage
+Save Root: "S:\\SC\\Measurements"  # Path to shared NAS drive
+
+Save File:
+  sample name: SPG806
+  device type: C5
+  device name: E1
+  cell: ""  # Empty cell field to prevent qnnpy save crash
+
+
+instrument:
+  port: 'GPIB0::12::INSTR'  # Lakeshore 336 GPIB address
+  output_channel: 1          # Heater output channel
+
+sourcemeter:
+  port: 'GPIB0::23::INSTR'   # Keithley 2400 GPIB address
+  current_level: 1.0e-6      # Source current in Amperes (1 µA)
+  # Enhanced noise reduction parameters
+  integration_time_plc: 10.0  # Integration time in power line cycles (higher = less noise)
+  filter_count: 10            # Digital filter count for moving average
+  num_averages: 5            # Number of measurements to average per data point
+  settling_time: 0.1          # Settling time between measurements (seconds)
+
+# dR/dT filtering options to reduce noise in derivative calculations
+derivative_filtering:
+  enabled: true               # Enable/disable dR/dT filtering
+  method: 'savgol'           # Filtering method: 'savgol', 'moving_average', 'gaussian', 'median'
+  savgol_window: 5           # Window length for Savitzky-Golay filter (must be odd, >= 3)
+  savgol_order: 2            # Polynomial order for Savitzky-Golay filter (must be < window)
+  moving_avg_window: 5       # Window size for moving average filter
+  gaussian_sigma: 1.0        # Standard deviation for Gaussian filter
+  median_window: 5           # Window size for median filter (must be odd)
+  # Filter aggressiveness control
+  filter_twice: false        # Apply the filter twice for stronger noise reduction
+  preserve_peaks: true       # Use peak-preserving filtering when possible
+
+ramp_test:
+  start_temp: 3.5            # Starting temperature in Kelvin
+  target_temp: 13.0           # Target temperature in Kelvin
+  ramp_rate: 0.5              # Ramp rate in K/min
+  recording_interval: 1.0    # Data recording interval in seconds
+  hold_time: 60              # Hold time at target temperature in seconds
+
+pid:
+  P: 90                      # Proportional gain
+  I: 50                       # Integral gain
+  D: 5                       # Derivative gain
+
+# Additional temperature control settings for coldstage stability
+temperature_control:
+  heater_range: 3            # Heater range (1=low, 2=medium, 3=high) - medium for better control
+  manual_output: 0           # Manual heater output percentage (0=auto PID mode)
+  max_heater_output: 100     # Maximum heater output limit (percentage)
+
+# Noise Reduction Notes:
+# - integration_time_plc: 1 PLC = 16.7ms (60Hz), higher values reduce noise but slow measurements
+#   Recommended: 1-10 PLC for balance, 10-100 PLC for lowest noise
+# - filter_count: Number of readings for digital moving average filter
+# - num_averages: Multiple measurements averaged per data point
+# - settling_time: Delay between measurements for system stabilization
+#
+# dR/dT Filtering Options:
+# - savgol: Savitzky-Golay filter preserves peaks while smoothing, good for derivative analysis
+# - moving_average: Simple moving average, good for general noise reduction
+# - gaussian: Gaussian filter provides smooth curves, may blur sharp features
+# - median: Median filter removes outliers/spikes, preserves edges
+# - filter_twice: Apply filter twice for stronger noise reduction (may over-smooth)
+# - preserve_peaks: Use peak-preserving algorithms when available
+# Recommended for noisy dR/dT: savgol with window=5, order=2, preserve_peaks=true
+#
+# PID Tuning for Coldstage Systems:
+# - Lower P gain (50 vs 100) reduces oscillations from cooling cycle disturbances
+# - Higher I gain (50 vs 25) provides better steady-state accuracy and disturbance rejection
+# - Lower D gain (5 vs 15) prevents noise amplification from temperature sensor
+# - Consider heater range 2 (medium) for balance between response and stability
+# - For severe oscillations, try: P=30, I=70, D=2
+# - For slow response, try: P=70, I=40, D=8
+#
+# Original Notes:
+# - The sourcemeter will be configured for 2-wire resistance measurement
+# - Current source mode with voltage measurement
+# - Output will be enabled at start of ramp and disabled at end
+# - Resistance calculated as R = V / I for each measurement
+# - All data (temperature, voltage, resistance) logged simultaneously
